@@ -1,0 +1,7 @@
+<cyber>
+  <module>
+    <name>fast_lio2</name>
+    <dag_conf>/apollo/modules/fast_lio2/dag/fast_lio2.dag</dag_conf>
+    <process_name>fast_lio2</process_name>
+  </module>
+</cyber>

@@ -1,0 +1,11 @@
+module_config {
+    module_library : "/apollo/bazel-bin/modules/fast_lio2/libfast_lio2_component.so"
+    components {
+      class_name : "FastLio2Component"
+      config {
+        name : "fast_lio2"
+        config_file_path : "/apollo/modules/fast_lio2/conf/fast_lio2.pb.txt"
+        flag_file_path: "/apollo/modules/common/data/global_flagfile.txt"
+      }
+    }
+}

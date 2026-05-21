@@ -1,0 +1,42 @@
+{
+  "dataset_id": "zhongji_20251009",
+  "input": {
+    "lidar_frame_count": 170,
+    "lidar_rate_hz": 10.0,
+    "imu_rate_hz": 100.0,
+    "point_time_span_sec": 0.1,
+    "imu_acc_norm_mean_mps2": 9.8,
+    "has_lidar_to_imu_extrinsic": true,
+    "timestamps_monotonic": true,
+    "sensor_time_overlap_ratio": 0.99
+  },
+  "runtime": {
+    "tracking_ok": true,
+    "reject_ok": true,
+    "lidar_frames_received": 170,
+    "frames_processed": 166,
+    "dropped_lidar_frames": 3,
+    "dropped_imu_messages": 0,
+    "effective_feature_count": 534,
+    "map_point_count": 4681,
+    "mean_point_to_plane_residual": 0.018361,
+    "latency_p50_ms": 0.001,
+    "latency_p95_ms": 50.0
+  },
+  "trajectory": {
+    "matched_pose_count": 159,
+    "ate_rmse_m": 0.124,
+    "ate_mean_m": 0.105,
+    "ate_max_m": 0.309,
+    "path_length_ratio": 1.086,
+    "yaw_drift_deg_per_100m": 0.0,
+    "height_drift_m": 0.0
+  },
+  "map": {
+    "optimized_frame_dataset_valid": true,
+    "tile_bundle_valid": true,
+    "localization_map_package_valid": true,
+    "map_products_consistent": true,
+    "tile_coverage_ratio": 0.95
+  }
+}

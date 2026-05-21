@@ -1,0 +1,89 @@
+syntax = "proto2";
+
+package apollo.localization.fast_lio2;
+
+message FastLio2RuntimeConf {
+  optional string pointcloud_topic = 1
+      [default = "/apollo/sensor/vanjeelidar/up/PointCloud2"];
+  optional string imu_topic = 2 [default = "/apollo/sensor/gnss/corrected_imu"];
+
+  optional string result_path = 10
+      [default = "/apollo/data/fast_lio2/Initialization_result.txt"];
+
+  optional int32 scan_line = 20 [default = 16];
+  optional int32 point_filter_num = 21 [default = 3];
+  optional double blind = 22 [default = 2.0];
+
+  optional bool roi_enable = 30 [default = false];
+  optional double roi_x_min = 31 [default = -1e9];
+  optional double roi_x_max = 32 [default = 1e9];
+  optional double roi_y_min = 33 [default = -1e9];
+  optional double roi_y_max = 34 [default = 1e9];
+  optional double roi_z_min = 35 [default = -1e9];
+  optional double roi_z_max = 36 [default = 1e9];
+
+  optional int32 cut_frame_num = 40 [default = 3];
+  optional int32 orig_odom_freq = 41 [default = 10];
+  optional double mean_acc_norm = 42 [default = 9.81];
+  optional double online_refine_time = 43 [default = 30.0];
+  optional double data_accum_length = 44 [default = 650.0];
+
+  // If all initial extrinsic fields are provided, vehicle prior mode is
+  // enabled. The prior is LiDAR-to-IMU:
+  // point_in_imu = R_li * point_in_lidar + t_li.
+  optional double initial_rotation_lidar_to_imu_qx = 45;
+  optional double initial_rotation_lidar_to_imu_qy = 46;
+  optional double initial_rotation_lidar_to_imu_qz = 47;
+  optional double initial_rotation_lidar_to_imu_qw = 48;
+  optional double initial_translation_lidar_to_imu_x = 49;
+  optional double initial_translation_lidar_to_imu_y = 50;
+  optional double initial_translation_lidar_to_imu_z = 51;
+
+  repeated double rot_li_cov = 52;
+  repeated double trans_li_cov = 53;
+  optional double vehicle_roll_pitch_prior_sigma_deg = 54 [default = 5.0];
+  optional double vehicle_yaw_progress_threshold = 55 [default = 0.35];
+  optional double vehicle_mapping_residual_threshold = 56 [default = 0.06];
+  optional int32 vehicle_min_effective_features = 57 [default = 300];
+  optional double vehicle_yaw_prior_sigma_deg = 58 [default = 10.0];
+  optional double vehicle_translation_prior_sigma_m = 59 [default = 0.5];
+
+  optional double filter_size_surf = 60 [default = 0.3];
+  optional double filter_size_map = 61 [default = 0.5];
+  optional double gyr_cov = 62 [default = 0.5];
+  optional double acc_cov = 63 [default = 0.5];
+  optional double b_acc_cov = 64 [default = 0.0001];
+  optional double b_gyr_cov = 65 [default = 0.0001];
+  optional double det_range = 66 [default = 100.0];
+  optional int32 max_iteration = 67 [default = 5];
+  optional double cube_side_length = 68 [default = 2000.0];
+
+  optional bool publish_visualization = 80 [default = true];
+  optional string status_topic = 81
+      [default = "/apollo/localization/fast_lio2/status"];
+  optional string cloud_registered_topic = 82
+      [default = "/apollo/localization/fast_lio2/cloud_registered"];
+  optional string cloud_registered_body_topic = 83
+      [default = "/apollo/localization/fast_lio2/cloud_registered_body"];
+  optional string map_topic = 84
+      [default = "/apollo/localization/fast_lio2/map"];
+  optional string path_topic = 85
+      [default = "/apollo/localization/fast_lio2/path"];
+  optional string cloud_initial_extrinsic_topic = 86
+      [default = "/apollo/localization/fast_lio2/cloud_initial_extrinsic"];
+
+  enum TimestampMode {
+    MESSAGE_TIME = 0;
+    RECEIVE_TIME = 1;
+  }
+  optional TimestampMode timestamp_mode = 90 [default = MESSAGE_TIME];
+
+  // Keep Cyber reader callbacks light. If the FAST-LIO2 runtime cannot keep up
+  // with the LiDAR rate, old frames are dropped before they can backpressure
+  // the flatbuffers/shared-memory transport.
+  optional int32 max_pending_pointcloud_frames = 91 [default = 2];
+  optional int32 max_pending_imu_messages = 92 [default = 20000];
+  optional double cloud_publish_interval_sec = 93 [default = 0.2];
+  optional double map_publish_interval_sec = 94 [default = 1.0];
+  optional string map_frame = 95 [default = "map"];
+}

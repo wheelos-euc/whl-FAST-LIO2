@@ -1,0 +1,47 @@
+syntax = "proto2";
+
+package apollo.localization.fast_lio2;
+
+import "modules/common_msgs/basic_msgs/header.proto";
+
+message FastLio2RuntimeStatus {
+  optional apollo.common.Header header = 1;
+
+  optional string stage = 2;
+  optional string message = 3;
+
+  optional bool motion_detected = 10 [default = false];
+  optional bool data_sufficient = 11 [default = false];
+
+  optional double progress_x = 20 [default = 0.0];
+  optional double progress_y = 21 [default = 0.0];
+  optional double progress_z = 22 [default = 0.0];
+  optional double refinement_progress = 23 [default = 0.0];
+
+  optional double time_lag_imu_to_lidar = 30 [default = 0.0];
+
+  optional double mean_point_to_plane_residual = 31 [default = 0.0];
+  optional uint32 effective_feature_count = 32 [default = 0];
+  optional double extrinsic_delta_rotation_deg = 33 [default = 0.0];
+  optional double extrinsic_delta_translation_m = 34 [default = 0.0];
+  optional double gravity_norm = 35 [default = 0.0];
+  optional double lidar_motion_distance = 36 [default = 0.0];
+  optional double lidar_angular_velocity_norm = 37 [default = 0.0];
+
+  repeated double rotation_lidar_to_imu = 40;      // 3x3 row-major
+  repeated double translation_lidar_to_imu = 41;   // size 3
+
+  repeated double rotation_imu_to_lidar = 50;      // 3x3 row-major inverse
+  repeated double translation_imu_to_lidar = 51;   // size 3 inverse
+
+  optional string result_file = 60;
+
+  optional bool scan_match_valid = 70 [default = true];
+  optional uint32 consecutive_rejected_frames = 71 [default = 0];
+  optional string tracking_status = 72 [default = "OK"];
+  optional string operator_hint = 73;
+  optional string scan_match_reject_reason = 74;
+  optional double scan_match_inlier_ratio = 75 [default = 0.0];
+  optional double scan_match_delta_rotation_deg = 76 [default = 0.0];
+  optional double scan_match_delta_translation_m = 77 [default = 0.0];
+}

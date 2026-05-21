@@ -1,0 +1,26 @@
+syntax = "proto2";
+
+package apollo.localization.fast_lio2;
+
+import "modules/common_msgs/basic_msgs/header.proto";
+
+message FastLio2Metrics {
+  optional apollo.common.Header header = 1;
+  optional uint64 lidar_frames_received = 2 [default = 0];
+  optional uint64 imu_messages_received = 3 [default = 0];
+  optional uint64 synced_frames_processed = 4 [default = 0];
+  optional uint64 dropped_pointcloud_frames = 5 [default = 0];
+  optional uint64 dropped_imu_messages = 6 [default = 0];
+  optional double last_lidar_timestamp_sec = 7 [default = 0.0];
+  optional double last_processing_latency_ms = 8 [default = 0.0];
+  optional double mean_point_to_plane_residual = 9 [default = 0.0];
+  optional int32 effective_feature_count = 10 [default = 0];
+  optional int32 map_point_count = 11 [default = 0];
+  optional bool scan_match_valid = 12 [default = false];
+  optional string stage = 13;
+  optional string tracking_status = 14;
+  optional string reject_reason = 15;
+  optional double scan_match_inlier_ratio = 16 [default = 0.0];
+  optional double scan_match_delta_rotation_deg = 17 [default = 0.0];
+  optional double scan_match_delta_translation_m = 18 [default = 0.0];
+}

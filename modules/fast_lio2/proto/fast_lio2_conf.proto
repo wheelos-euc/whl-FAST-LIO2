@@ -1,0 +1,77 @@
+syntax = "proto2";
+
+package apollo.localization.fast_lio2;
+
+message FastLio2Conf {
+  optional string pointcloud_topic = 1
+      [default = "/apollo/sensor/velodyne64/compensator/PointCloud2"];
+  optional string imu_topic = 2 [default = "/apollo/sensor/gnss/imu"];
+  enum ImuMessageType {
+    CORRECTED_IMU = 0;
+    RAW_GNSS_IMU = 1;
+  }
+  optional ImuMessageType imu_message_type = 3 [default = RAW_GNSS_IMU];
+
+  optional string localization_topic = 10
+      [default = "/apollo/localization/fast_lio2/pose"];
+  optional string odometry_topic = 11
+      [default = "/apollo/localization/fast_lio2/odometry"];
+  optional string metrics_topic = 12
+      [default = "/apollo/localization/fast_lio2/metrics"];
+  optional string cloud_registered_topic = 13
+      [default = "/apollo/localization/fast_lio2/cloud_registered"];
+  optional string map_topic = 14 [default = "/apollo/localization/fast_lio2/map"];
+  optional string result_path = 15
+      [default = "/apollo/data/fast_lio2/Initialization_result.txt"];
+
+  optional string map_frame = 20 [default = "map"];
+  optional string child_frame = 21 [default = "fast_lio2"];
+  optional bool publish_registered_cloud = 22 [default = true];
+  optional bool publish_map = 23 [default = false];
+  optional double map_publish_interval_sec = 24 [default = 1.0];
+
+  enum TimestampMode {
+    MESSAGE_TIME = 0;
+    RECEIVE_TIME = 1;
+  }
+  optional TimestampMode timestamp_mode = 30 [default = MESSAGE_TIME];
+
+  optional int32 point_filter_num = 40 [default = 3];
+  optional double blind = 41 [default = 2.0];
+  optional double filter_size_surf = 42 [default = 0.3];
+  optional double filter_size_map = 43 [default = 0.5];
+  optional double gyr_cov = 44 [default = 0.1];
+  optional double acc_cov = 45 [default = 0.1];
+  optional double b_gyr_cov = 46 [default = 0.0001];
+  optional double b_acc_cov = 47 [default = 0.0001];
+  optional double det_range = 48 [default = 100.0];
+  optional int32 max_iteration = 49 [default = 5];
+  optional double cube_side_length = 50 [default = 2000.0];
+  optional double mean_acc_norm = 51 [default = 9.81];
+
+  optional bool roi_enable = 60 [default = false];
+  optional double roi_x_min = 61 [default = -1e9];
+  optional double roi_x_max = 62 [default = 1e9];
+  optional double roi_y_min = 63 [default = -1e9];
+  optional double roi_y_max = 64 [default = 1e9];
+  optional double roi_z_min = 65 [default = -1e9];
+  optional double roi_z_max = 66 [default = 1e9];
+
+  optional double initial_rotation_lidar_to_imu_qx = 70;
+  optional double initial_rotation_lidar_to_imu_qy = 71;
+  optional double initial_rotation_lidar_to_imu_qz = 72;
+  optional double initial_rotation_lidar_to_imu_qw = 73;
+  optional double initial_translation_lidar_to_imu_x = 74;
+  optional double initial_translation_lidar_to_imu_y = 75;
+  optional double initial_translation_lidar_to_imu_z = 76;
+
+  optional int32 max_pending_pointcloud_frames = 90 [default = 2];
+  optional int32 max_pending_imu_messages = 91 [default = 20000];
+
+  // Kept large by default so offline playback behaves as odometry/mapping
+  // rather than terminating after the staged refinement window.
+  optional double online_refine_time = 100 [default = 1e9];
+  optional double data_accum_length = 101 [default = 650.0];
+  optional int32 cut_frame_num = 102 [default = 3];
+  optional int32 orig_odom_freq = 103 [default = 10];
+}
