@@ -57,6 +57,37 @@ rewrite and observing:
 FAST-LIO2 component started. pointcloud_topic=... imu_topic=...
 ```
 
+For host-mode replay outside a Docker `/apollo` mount, generate rewritten DAG /
+config assets with:
+
+```bash
+# first list the Bazel-cache candidates you want to use
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/modules/fast_lio2/libfast_lio2_component.so' -type f
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/mainboard/mainboard' -type f
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/tools/cyber_recorder/cyber_recorder' -type f
+
+python3 tools/prepare_apollo_host_run.py \
+  --apollo_root /path/to/apollo-base \
+  --output_dir /tmp/fastlio_runs/sensor_rgb_host \
+  --record_path /mnt/synology/apollo/sensor_rgb.record \
+  --module_library /abs/path/to/libfast_lio2_component.so \
+  --mainboard_binary /abs/path/to/mainboard \
+  --cyber_recorder_binary /abs/path/to/cyber_recorder
+```
+
+This rewrites:
+
+- `module_library`
+- `config_file_path`
+- `flag_file_path`
+- `result_path`
+
+and raises `max_pending_pointcloud_frames` from the module default (`2`) to an
+offline-validation default (`256`).
+
+If the Bazel cache contains multiple matching binaries or libraries, the script
+requires these explicit override paths instead of auto-selecting one candidate.
+
 ## 4. Required inputs for mapping
 
 To use the module for mapping, provide:
