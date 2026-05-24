@@ -166,6 +166,53 @@ Then launch with Apollo mainboard / launch tooling using:
 - `modules/fast_lio2/dag/fast_lio2.dag`
 - `modules/fast_lio2/conf/fast_lio2.pb.txt`
 
+For host-mode offline replay outside a Docker `/apollo` mount, generate rewritten
+runtime assets with:
+
+```bash
+# first list the Bazel-cache candidates you want to use
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/modules/fast_lio2/libfast_lio2_component.so' -type f
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/mainboard/mainboard' -type f
+find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/tools/cyber_recorder/cyber_recorder' -type f
+
+python3 tools/prepare_apollo_host_run.py \
+  --apollo_root /path/to/apollo-base \
+  --output_dir /tmp/fastlio_runs/sensor_rgb_host \
+  --record_path /mnt/synology/apollo/sensor_rgb.record \
+  --module_library /abs/path/to/libfast_lio2_component.so \
+  --mainboard_binary /abs/path/to/mainboard \
+  --cyber_recorder_binary /abs/path/to/cyber_recorder
+```
+
+This generates:
+
+- `fast_lio2.host.pb.txt`
+- `fast_lio2.host.dag`
+- `host_run_summary.json`
+
+with:
+
+- host-absolute `module_library`
+- host-absolute `config_file_path`
+- host-absolute `flag_file_path`
+- `max_pending_pointcloud_frames=256` for offline replay
+- a writable `Initialization_result.txt` under the chosen output directory
+
+When an Apollo Bazel cache contains multiple matching outputs, the tool now fails
+fast and requires explicit `--module_library`, `--mainboard_binary`, and
+`--cyber_recorder_binary` overrides instead of guessing.
+
+Validated on 2026-05-23 for `sensor_rgb.record`:
+
+- slow replay command: `cyber_recorder play ... -r 0.1`
+- pending queue: `256`
+- result: `586` normal `scan2map` updates in runtime log
+- output record topics:
+  - pose: `1809`
+  - odometry: `1809`
+  - metrics: `1809`
+  - cloud_registered: `1809`
+
 This repository remains the right place to:
 
 - keep the self-contained module source
