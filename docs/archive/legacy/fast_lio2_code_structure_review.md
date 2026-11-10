@@ -1,4 +1,9 @@
-# FAST-LIO2 Apollo Cyber code structure review
+# Archived: FAST-LIO2 Apollo Cyber code structure review
+
+> Historical migration snapshot. Its paths and implementation-status claims
+> may be stale; use
+> [the current runtime architecture](../../architecture/fast_lio2_runtime_architecture.md)
+> and verify source before relying on them.
 
 ## 1. Current implementation structure
 

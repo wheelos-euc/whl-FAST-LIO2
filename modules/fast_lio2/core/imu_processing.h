@@ -44,8 +44,6 @@ class ImuProcess
   void set_mean_acc_norm(const double &mean_acc_norm);
   void set_gyr_bias_cov(const V3D &b_g);
   void set_acc_bias_cov(const V3D &b_a);
-  void SeedLioState(double last_lidar_end_time,
-                    const sensor_msgs::ImuConstPtr &lastimu);
   bool Process(const MeasureGroup &meas, StatesGroup &state, PointCloudXYZI::Ptr pcl_un_);
 
 
@@ -63,7 +61,6 @@ class ImuProcess
   int    lidar_type;
   bool   imu_en;
   bool   undistort_en; // enable/disable point cloud de-skew
-  bool LI_init_done = false;
   double IMU_mean_acc_norm;
 
  private:
@@ -158,18 +155,6 @@ void ImuProcess::set_gyr_bias_cov(const V3D &b_g)
 void ImuProcess::set_acc_bias_cov(const V3D &b_a)
 {
   cov_bias_acc = b_a;
-}
-
-void ImuProcess::SeedLioState(double last_lidar_end_time,
-                              const sensor_msgs::ImuConstPtr &lastimu)
-{
-  if (lastimu) {
-    last_imu_ = lastimu;
-  }
-  last_lidar_end_time_ = last_lidar_end_time;
-  imu_need_init_ = false;
-  cov_acc = cov_acc_scale;
-  cov_gyr = cov_gyr_scale;
 }
 
 void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, int &N)
@@ -440,35 +425,20 @@ bool ImuProcess::Process(const MeasureGroup &meas, StatesGroup &stat, PointCloud
 
     if (imu_need_init_)
     {
-        if(!LI_init_done){
-            /// The very first lidar frame
-            IMU_init(meas, stat, init_iter_num);
-            imu_need_init_ = true;
-            last_imu_   = meas.imu.back();
-            if (init_iter_num > MAX_INI_COUNT)
-            {
-                cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
-                imu_need_init_ = false;
-
-                cov_acc = cov_acc_scale;
-                cov_gyr = cov_gyr_scale;
-
-                ROS_INFO("IMU Initialization Done: Gravity: %.4f %.4f %.4f, Acc norm: %.4f", stat.gravity[0], stat.gravity[1], stat.gravity[2], mean_acc.norm());
-                IMU_mean_acc_norm = mean_acc.norm();
-            }
-        }
-        else{
-            cout << endl;
-            printf(BOLDMAGENTA "[Refinement] Switch to LIO mode, online refinement begins.\n\n" RESET);
-            last_imu_   = meas.imu.back();
-            if (meas.lidar != nullptr && !meas.lidar->points.empty()) {
-                last_lidar_end_time_ =
-                    meas.lidar_beg_time +
-                    meas.lidar->points.back().curvature / double(1000);
-            }
+        /// The very first lidar frame
+        IMU_init(meas, stat, init_iter_num);
+        imu_need_init_ = true;
+        last_imu_   = meas.imu.back();
+        if (init_iter_num > MAX_INI_COUNT)
+        {
+            cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
             imu_need_init_ = false;
+
             cov_acc = cov_acc_scale;
             cov_gyr = cov_gyr_scale;
+
+            ROS_INFO("IMU Initialization Done: Gravity: %.4f %.4f %.4f, Acc norm: %.4f", stat.gravity[0], stat.gravity[1], stat.gravity[2], mean_acc.norm());
+            IMU_mean_acc_norm = mean_acc.norm();
         }
         if (cur_pcl_un_) cur_pcl_un_->clear();
         return false;

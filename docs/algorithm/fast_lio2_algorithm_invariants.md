@@ -1,4 +1,8 @@
-# FAST-LIO2 official algorithm review for WHL refactor
+# FAST-LIO2 algorithm invariants
+
+> Review snapshot dated 2026-05-21. This document records algorithm and frame
+> invariants; it is not evidence that the current build has passed every
+> runtime or mapping-quality gate.
 
 Date: 2026-05-21
 

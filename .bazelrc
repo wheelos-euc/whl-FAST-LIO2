@@ -1,0 +1,12 @@
+build --cxxopt="-std=c++17"
+build --jobs=8
+build --verbose_failures
+
+common --registry=https://bcr.bazel.build
+common --registry=https://bcr.wheelos.cn/
+common --enable_bzlmod
+
+build:release --compilation_mode=opt --strip=always --copt=-O3
+build:debug --compilation_mode=dbg --copt=-g --copt=-O0
+
+try-import %workspace%/.bazelrc.user

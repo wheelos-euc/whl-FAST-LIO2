@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly VERSION="7.6.2"
+readonly CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/whl-fast-lio2"
+readonly BAZEL_BIN="${CACHE_DIR}/bazel-${VERSION}"
+
+if command -v bazel >/dev/null 2>&1 &&
+   [[ "$(bazel --version)" == "bazel ${VERSION}" ]]; then
+  exec bazel "$@"
+fi
+
+case "$(uname -m)" in
+  x86_64)
+    readonly ARCH="x86_64"
+    readonly SHA256="dc5ec4591459738a71074957a452ca0d4fdb55623dc006cd6956a177bfe79af7"
+    ;;
+  aarch64|arm64)
+    readonly ARCH="arm64"
+    readonly SHA256="5e9130cedac6d1ff4a0cc033b3565576babbe9641401b04a4ee701738b457220"
+    ;;
+  *)
+    echo "Unsupported architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+if [[ ! -x "${BAZEL_BIN}" ]]; then
+  mkdir -p "${CACHE_DIR}"
+  readonly DOWNLOAD="${BAZEL_BIN}.download"
+  curl --fail --location --retry 3 --retry-all-errors \
+    --output "${DOWNLOAD}" \
+    "https://github.com/bazelbuild/bazel/releases/download/${VERSION}/bazel-${VERSION}-linux-${ARCH}"
+  echo "${SHA256}  ${DOWNLOAD}" | sha256sum --check -
+  chmod +x "${DOWNLOAD}"
+  mv "${DOWNLOAD}" "${BAZEL_BIN}"
+fi
+
+exec "${BAZEL_BIN}" "$@"

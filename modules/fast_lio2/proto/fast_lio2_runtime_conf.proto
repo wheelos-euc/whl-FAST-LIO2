@@ -25,11 +25,13 @@ message FastLio2RuntimeConf {
   optional int32 cut_frame_num = 40 [default = 3];
   optional int32 orig_odom_freq = 41 [default = 10];
   optional double mean_acc_norm = 42 [default = 9.81];
+
+  // Deprecated compatibility fields. Standard FAST-LIO initializes from IMU
+  // samples and then runs continuously; it has no refinement deadline.
   optional double online_refine_time = 43 [default = 30.0];
   optional double data_accum_length = 44 [default = 650.0];
 
-  // If all initial extrinsic fields are provided, vehicle prior mode is
-  // enabled. The prior is LiDAR-to-IMU:
+  // Static LiDAR-to-IMU extrinsic:
   // point_in_imu = R_li * point_in_lidar + t_li.
   optional double initial_rotation_lidar_to_imu_qx = 45;
   optional double initial_rotation_lidar_to_imu_qy = 46;
@@ -41,6 +43,7 @@ message FastLio2RuntimeConf {
 
   repeated double rot_li_cov = 52;
   repeated double trans_li_cov = 53;
+  // Deprecated LiDAR_IMU_Init compatibility fields. They are ignored.
   optional double vehicle_roll_pitch_prior_sigma_deg = 54 [default = 5.0];
   optional double vehicle_yaw_progress_threshold = 55 [default = 0.35];
   optional double vehicle_mapping_residual_threshold = 56 [default = 0.06];

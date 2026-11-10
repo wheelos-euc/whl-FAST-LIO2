@@ -18,7 +18,7 @@
 
 #include <string>
 
-#include "modules/common_msgs/localization_msgs/imu.pb.h"
+#include "wheelos_msgs/localization_msgs/imu.pb.h"
 
 #include "modules/fast_lio2/adapter/runtime_data.h"
 

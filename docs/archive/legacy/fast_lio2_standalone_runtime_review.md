@@ -1,4 +1,9 @@
-# FAST-LIO2 standalone Cyber runtime review
+# Archived: FAST-LIO2 standalone Cyber runtime review
+
+> Historical review dated 2026-05-21. Its implementation-status claims may be
+> stale; use
+> [the current runtime architecture](../../architecture/fast_lio2_runtime_architecture.md)
+> and verify source before relying on them.
 
 Date: 2026-05-21
 

@@ -1,0 +1,29 @@
+module(
+    name = "whl_fast_lio2",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "protobuf", version = "27.1", repo_name = "com_google_protobuf")
+bazel_dep(name = "grpc", version = "1.69.0", repo_name = "com_github_grpc_grpc")
+bazel_dep(name = "eigen", version = "3.4.0.bcr.3")
+bazel_dep(name = "pcl", version = "1.15.0.bcr.2", repo_name = "local_config_pcl")
+bazel_dep(name = "ceres-solver", version = "2.2.0", repo_name = "remote_ceres")
+bazel_dep(name = "wheelos_core", version = "1.0.0")
+bazel_dep(name = "wheelos_msgs", version = "0.1.5")
+
+git_override(
+    module_name = "wheelos_msgs",
+    commit = "023fff4356d97c5538d18dd484f77e62ea9dad8f",
+    remote = "https://github.com/wheelos/wheelos_msgs.git",
+)
+
+single_version_override(
+    module_name = "eigen",
+    version = "3.4.0.bcr.3",
+)
+
+single_version_override(
+    module_name = "protobuf",
+    version = "27.1",
+)

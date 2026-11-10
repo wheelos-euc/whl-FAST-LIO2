@@ -11,25 +11,23 @@ It currently contains:
 
 ## Current status
 
-`whl-FAST-LIO2` now contains a **self-contained Apollo drop-in module** under:
+`whl-FAST-LIO2` is now a standalone Apollo Cyber component workspace under:
 
 ```text
 modules/fast_lio2/
 ```
 
-This extracted module:
+The workspace pins the published `wheelos_core` through Bzlmod and
+pins `wheelos_msgs` from
+[`wheelos/wheelos_msgs`](https://github.com/wheelos/wheelos_msgs). It no longer
+depends on Apollo Base's `modules/common_msgs`, adaptive point-cloud reader,
+common utilities, or SLAM odometry proto.
 
-- contains its own Cyber component
-- contains its own adapters, core, and internal proto files
-- no longer depends on `modules/calibration/lidar_imu_calibration`
-- now exposes only FAST-LIO2-native runtime names inside `modules/fast_lio2/`
-- can be copied into `apollo-base/modules/fast_lio2` and built/launched there
+Build with the repository wrapper, which reuses an installed matching Bazel
+or installs the pinned binary in the user cache when needed:
 
-At the same time, this repository itself is still **not** a full standalone
-Apollo workspace. It is best described as:
-
-```text
-drop-in Apollo module + evaluation + source-of-truth repository
+```bash
+tools/bazelw build //modules/fast_lio2:libfast_lio2_component.so
 ```
 
 ## What a complete standalone version must contain
@@ -114,9 +112,6 @@ python3 tools/evaluate_scorecard.py \
   --metrics_json tests/scorecard_metrics_sensor_rgb.json \
   --output_json /tmp/sensor_rgb_scorecard.json
 
-python3 tools/evaluate_scorecard.py \
-  --metrics_json tests/scorecard_metrics_zhongji.json \
-  --output_json /tmp/zhongji_scorecard.json
 ```
 
 Validated again after the core modularization on 2026-05-21:
@@ -127,11 +122,11 @@ Validated again after the core modularization on 2026-05-21:
 - `scorecard_contract_smoke`: passed
 - `map_product_contract_smoke`: passed
 - `official_pipeline_contract_smoke`: passed
-- `sensor_rgb` / `zhongji_20251009` scorecards: passed
+- public synthetic scorecard: passed
 
 ## Core modularization status
 
-The runtime-facing core no longer uses calibration-module naming:
+The runtime-facing core is isolated from WheelOS/Cyber message definitions:
 
 - `adapter/runtime_data.h`
 - `proto/fast_lio2_runtime_conf.proto`
@@ -139,82 +134,60 @@ The runtime-facing core no longer uses calibration-module naming:
 - `core/fast_lio2_runtime_core.h`
 - `core/fast_lio2_runtime_core.cc`
 
-Imported upstream helper code under `core/include/LI_init/` still keeps the
-authors' original initialization naming, but it is now an internal FAST-LIO2
-implementation detail rather than a dependency on Apollo calibration code.
+`modules/fast_lio2/adapter/sensor_contract.{h,cc}` is the only boundary that
+may interpret driver timestamps, units, and frames. The core uses the standard
+IMU initialization, propagation, deskew, scan-to-map, and local-map eviction
+path; it does not depend on `core/include/LI_init/`.
 
-## Important limitation
+## Private data replay
 
-## Drop-in usage inside Apollo
+Customer records, site-specific configurations, replay scripts, scorecards,
+and assessment documents belong under the ignored `data/` directory. They are
+not part of the public source tree or its Git history.
 
-Copy:
+Runtime logs and result output are written to `/tmp/whl_fast_lio2`.
 
-```text
-whl-FAST-LIO2/modules/fast_lio2
-  -> apollo-base/modules/fast_lio2
-```
+See `docs/sensors/fast_lio2_sensor_contract.md` for the required LiDAR/IMU driver
+semantics. Corrected IMU input is deliberately blocked until its body-frame and
+sensor-time semantics are verified.
 
-Then build:
+See [`docs/README.md`](docs/README.md) for maintained project documentation.
+
+### Six-axis IMU and record adaptation
+
+The current `RAW_GNSS_IMU` input already consumes only three angular-velocity
+and three acceleration components; it does not use attitude, magnetometer,
+GNSS position, or an external pose. The enum names the Apollo protobuf type,
+not a requirement for a GNSS-equipped sensor. A converted Livox record using
+`apollo.drivers.gnss.Imu` can use this reader without changing the estimator.
+
+Record playback uses `cyber_recorder play` and the same component as live
+input. Select the actual record topics and verified LiDAR-to-IMU extrinsic in
+a private config under `data/`; do not reuse site-specific defaults. Raw IMU
+`measurement_time` must be GPS-epoch seconds (converted by adding 315964782),
+angular velocity rad/s, acceleration m/s², and point timestamps monotonic
+Unix nanoseconds. Do not apply a second acceleration conversion to an
+already-SI record. Audit the record and initialization compatibility before
+replay; successful message decoding is not evidence of map quality.
+
+Vanjee records use `imu_message_type: VANJEE_IMU` and their actual driver
+topics. Unlike `RAW_GNSS_IMU`, Vanjee `measurement_time` is passed through
+without a GPS offset. See the sensor contract for the wire schema and frames.
+
+The host asset generator accepts templates outside the Apollo workspace:
 
 ```bash
-cd /path/to/apollo-base
-bazel build //modules/fast_lio2:libfast_lio2_component.so
-```
-
-Then launch with Apollo mainboard / launch tooling using:
-
-- `modules/fast_lio2/dag/fast_lio2.dag`
-- `modules/fast_lio2/conf/fast_lio2.pb.txt`
-
-For host-mode offline replay outside a Docker `/apollo` mount, generate rewritten
-runtime assets with:
-
-```bash
-# first list the Bazel-cache candidates you want to use
-find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/modules/fast_lio2/libfast_lio2_component.so' -type f
-find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/mainboard/mainboard' -type f
-find /path/to/apollo-base/.cache/bazel -path '*/execroot/_main/bazel-out/*/bin/cyber/tools/cyber_recorder/cyber_recorder' -type f
-
 python3 tools/prepare_apollo_host_run.py \
-  --apollo_root /path/to/apollo-base \
-  --output_dir /tmp/fastlio_runs/sensor_rgb_host \
-  --record_path /mnt/synology/apollo/sensor_rgb.record \
-  --module_library /abs/path/to/libfast_lio2_component.so \
-  --mainboard_binary /abs/path/to/mainboard \
-  --cyber_recorder_binary /abs/path/to/cyber_recorder
+  --apollo_root /path/to/apollo \
+  --config_template /path/to/private/sensor.pb.txt \
+  --dag_template modules/fast_lio2/dag/fast_lio2.dag \
+  --module_library /path/to/libfast_lio2_component.so \
+  --mainboard_binary /path/to/mainboard \
+  --cyber_recorder_binary /path/to/cyber_recorder \
+  --record_path /path/to/input.record \
+  --output_dir /tmp/whl_fast_lio2/replay
 ```
 
-This generates:
-
-- `fast_lio2.host.pb.txt`
-- `fast_lio2.host.dag`
-- `host_run_summary.json`
-
-with:
-
-- host-absolute `module_library`
-- host-absolute `config_file_path`
-- host-absolute `flag_file_path`
-- `max_pending_pointcloud_frames=256` for offline replay
-- a writable `Initialization_result.txt` under the chosen output directory
-
-When an Apollo Bazel cache contains multiple matching outputs, the tool now fails
-fast and requires explicit `--module_library`, `--mainboard_binary`, and
-`--cyber_recorder_binary` overrides instead of guessing.
-
-Validated on 2026-05-23 for `sensor_rgb.record`:
-
-- slow replay command: `cyber_recorder play ... -r 0.1`
-- pending queue: `256`
-- result: `586` normal `scan2map` updates in runtime log
-- output record topics:
-  - pose: `1809`
-  - odometry: `1809`
-  - metrics: `1809`
-  - cloud_registered: `1809`
-
-This repository remains the right place to:
-
-- keep the self-contained module source
-- maintain scorecards and baselines
-- maintain mapping / map-product contracts
+This changes launch assets, queues and result paths only; algorithm parameters
+in the selected config are preserved. The generated summary records both
+template paths. The standalone DAG does not require Apollo's global flagfile.
