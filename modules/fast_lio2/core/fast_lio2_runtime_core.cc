@@ -4,16 +4,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 
-#include <boost/filesystem.hpp>
 #include <google/protobuf/repeated_field.h>
 
 #include "cyber/common/log.h"
 #include "modules/fast_lio2/adapter/corrected_imu_adapter.h"
 #include "modules/fast_lio2/core/imu_processing.h"
-#include "modules/fast_lio2/core/include/LI_init/LI_init.h"
 
 namespace apollo {
 namespace localization {
@@ -23,8 +22,6 @@ namespace {
 
 constexpr double kMoveThreshold = 1.5;
 constexpr int kNumMatchPoints = NUM_MATCH_POINTS;
-constexpr uint32_t kTrackingLostRejectedFrames = 5;
-constexpr int kRefineDebugFrameLimit = 50;
 
 float CalcDist(const PointType& p1, const PointType& p2) {
   const float dx = p1.x - p2.x;
@@ -115,8 +112,6 @@ std::string StateDebugString(const StatesGroup& state) {
 bool FastLio2RuntimeCore::Init(const FastLio2RuntimeConf& conf) {
   conf_ = conf;
   num_max_iterations_ = conf.max_iteration();
-  orig_odom_freq_ = conf.orig_odom_freq();
-  cut_frame_num_ = std::max(1, conf.cut_frame_num());
   mean_acc_norm_ = conf.mean_acc_norm();
   filter_size_surf_min_ = conf.filter_size_surf();
   filter_size_map_min_ = conf.filter_size_map();
@@ -134,28 +129,24 @@ bool FastLio2RuntimeCore::Init(const FastLio2RuntimeConf& conf) {
 
   point_selected_surf_.assign(100000, true);
   res_last_.assign(100000, -1000.0F);
-  jacobian_rot_.resize(30000, 3);
-  jacobian_rot_.setZero();
-
   down_size_filter_surf_.setLeafSize(
       filter_size_surf_min_, filter_size_surf_min_, filter_size_surf_min_);
   down_size_filter_map_.setLeafSize(filter_size_map_min_, filter_size_map_min_,
                                     filter_size_map_min_);
 
-  boost::filesystem::path result_path(conf_.result_path());
-  boost::filesystem::path log_dir =
+  std::filesystem::path result_path(conf_.result_path());
+  std::filesystem::path log_dir =
       result_path.parent_path().empty()
-          ? boost::filesystem::path("Log")
+          ? std::filesystem::path("Log")
           : result_path.parent_path() / "Log";
-  boost::filesystem::create_directories(log_dir);
+  std::filesystem::create_directories(log_dir);
   imu_process_ = std::make_shared<ImuProcess>();
-  init_li_ = std::make_shared<LI_Init>();
-  init_li_->data_accum_length = conf.data_accum_length();
-  InitVehiclePrior();
+  if (!ConfigureStaticExtrinsic()) {
+    return false;
+  }
 
   imu_process_->lidar_type = ROBOSENSE;
-  imu_process_->imu_en = false;
-  imu_process_->LI_init_done = false;
+  imu_process_->imu_en = true;
   imu_process_->undistort_en = true;
   imu_process_->set_mean_acc_norm(mean_acc_norm_);
   imu_process_->set_gyr_cov(
@@ -181,7 +172,7 @@ bool FastLio2RuntimeCore::Init(const FastLio2RuntimeConf& conf) {
   return true;
 }
 
-bool FastLio2RuntimeCore::InitVehiclePrior() {
+bool FastLio2RuntimeCore::ConfigureStaticExtrinsic() {
   const bool has_rotation = conf_.has_initial_rotation_lidar_to_imu_qx() &&
                             conf_.has_initial_rotation_lidar_to_imu_qy() &&
                             conf_.has_initial_rotation_lidar_to_imu_qz() &&
@@ -189,8 +180,11 @@ bool FastLio2RuntimeCore::InitVehiclePrior() {
   const bool has_translation = conf_.has_initial_translation_lidar_to_imu_x() &&
                                conf_.has_initial_translation_lidar_to_imu_y() &&
                                conf_.has_initial_translation_lidar_to_imu_z();
-  vehicle_prior_mode_ = has_rotation && has_translation;
-  if (!vehicle_prior_mode_) {
+  if (!has_rotation && !has_translation) {
+    AWARN << "No static lidar-to-imu extrinsic configured; using identity.";
+    return true;
+  }
+  if (!has_rotation || !has_translation) {
     if (has_rotation || has_translation ||
         conf_.has_initial_rotation_lidar_to_imu_qx() ||
         conf_.has_initial_rotation_lidar_to_imu_qy() ||
@@ -199,7 +193,7 @@ bool FastLio2RuntimeCore::InitVehiclePrior() {
         conf_.has_initial_translation_lidar_to_imu_x() ||
         conf_.has_initial_translation_lidar_to_imu_y() ||
         conf_.has_initial_translation_lidar_to_imu_z()) {
-      AWARN << "Incomplete initial extrinsic. Vehicle prior mode disabled. "
+      AERROR << "Incomplete static lidar-to-imu extrinsic. "
             << "has_rotation=" << has_rotation
             << " has_translation=" << has_translation;
     }
@@ -212,46 +206,18 @@ bool FastLio2RuntimeCore::InitVehiclePrior() {
                           conf_.initial_rotation_lidar_to_imu_qz());
   const double q_norm = q_li.norm();
   if (!std::isfinite(q_norm) || q_norm < 1e-8) {
-    AERROR << "Invalid initial lidar-to-imu quaternion. Vehicle prior mode "
-           << "disabled.";
-    vehicle_prior_mode_ = false;
+    AERROR << "Invalid static lidar-to-imu quaternion.";
     return false;
   }
   q_li.normalize();
-  initial_R_LI_ = q_li.toRotationMatrix();
-  initial_T_LI_ = V3D(conf_.initial_translation_lidar_to_imu_x(),
-                      conf_.initial_translation_lidar_to_imu_y(),
-                      conf_.initial_translation_lidar_to_imu_z());
-
-  init_li_->set_vehicle_prior(initial_R_LI_, initial_T_LI_,
-                              conf_.vehicle_roll_pitch_prior_sigma_deg(),
-                              conf_.vehicle_yaw_prior_sigma_deg(),
-                              conf_.vehicle_translation_prior_sigma_m());
-  AINFO << "Vehicle prior mode enabled. initial_R_LI=\n"
-        << initial_R_LI_ << "\ninitial_T_LI=" << initial_T_LI_.transpose()
-        << " yaw_progress_threshold=" << conf_.vehicle_yaw_progress_threshold()
-        << " mapping_residual_threshold="
-        << conf_.vehicle_mapping_residual_threshold()
-        << " min_effective_features=" << conf_.vehicle_min_effective_features()
-        << " roll_pitch_prior_sigma_deg="
-        << conf_.vehicle_roll_pitch_prior_sigma_deg()
-        << " yaw_prior_sigma_deg=" << conf_.vehicle_yaw_prior_sigma_deg()
-        << " translation_prior_sigma_m="
-        << conf_.vehicle_translation_prior_sigma_m();
+  state_.offset_R_L_I = q_li.toRotationMatrix();
+  state_.offset_T_L_I = V3D(conf_.initial_translation_lidar_to_imu_x(),
+                            conf_.initial_translation_lidar_to_imu_y(),
+                            conf_.initial_translation_lidar_to_imu_z());
+  AINFO << "Configured static lidar-to-imu extrinsic. R_li=\n"
+        << state_.offset_R_L_I
+        << "\nt_li=" << state_.offset_T_L_I.transpose();
   return true;
-}
-
-bool FastLio2RuntimeCore::VehicleDataSufficient(const V3D& progress) const {
-  if (!vehicle_prior_mode_) return false;
-  const double yaw_like_progress =
-      std::max(progress.x(), std::max(progress.y(), progress.z()));
-  const bool motion_ok =
-      yaw_like_progress >= conf_.vehicle_yaw_progress_threshold();
-  const bool mapping_ok =
-      mean_point_to_plane_residual_ <=
-          conf_.vehicle_mapping_residual_threshold() &&
-      effect_feat_num_ >= conf_.vehicle_min_effective_features();
-  return motion_ok && mapping_ok;
 }
 
 void FastLio2RuntimeCore::AddPointCloud(const FastLio2PointCloudFrame& cloud) {
@@ -261,7 +227,6 @@ void FastLio2RuntimeCore::AddPointCloud(const FastLio2PointCloudFrame& cloud) {
     lidar_buffer_.clear();
     time_buffer_.clear();
     lidar_pushed_ = false;
-    last_init_sample_set_ = false;
   }
   last_timestamp_lidar_ = cloud.scan_start_sec;
   lidar_buffer_.push_back(cloud.points);
@@ -270,22 +235,13 @@ void FastLio2RuntimeCore::AddPointCloud(const FastLio2PointCloudFrame& cloud) {
 
 void FastLio2RuntimeCore::AddImu(const FastLio2ImuSample& imu) {
   auto msg = ToCompatImu(imu);
-  if (imu_en_) {
-    msg->header.stamp = compat::Time::FromSec(msg->header.stamp.toSec() -
-                                              time_lag_imu_wrt_lidar_);
-  }
   const double msg_timestamp_sec = msg->header.stamp.toSec();
   if (msg_timestamp_sec < last_timestamp_imu_) {
     AWARN << "IMU timestamp loop detected, clearing IMU buffer.";
     imu_buffer_.clear();
-    init_li_->IMU_buffer_clear();
-    last_init_sample_set_ = false;
   }
   last_timestamp_imu_ = msg_timestamp_sec;
   imu_buffer_.push_back(msg);
-  if (!imu_en_ && !bootstrap_data_ready_) {
-    init_li_->push_ALL_IMU_CalibState(msg, mean_acc_norm_);
-  }
 }
 
 bool FastLio2RuntimeCore::Process() {
@@ -298,7 +254,7 @@ bool FastLio2RuntimeCore::Process() {
   }
   if (!did_work && stage_ == Stage::WAITING_FOR_DATA &&
       !lidar_buffer_.empty() && !imu_buffer_.empty()) {
-    SetStage(Stage::LIDAR_ONLY_ODOMETRY, "received lidar and imu data");
+    SetStage(Stage::IMU_INITIALIZING, "received lidar and imu data");
   }
   return finished_;
 }
@@ -337,113 +293,17 @@ bool FastLio2RuntimeCore::SyncPackages(MeasureGroup* meas) {
   return true;
 }
 
-bool FastLio2RuntimeCore::ValidateScanMatch(
-    const StatesGroup& state_before_update,
-    const StatesGroup& state_after_update) {
-  last_scan_match_reject_reason_ = "OK";
-  scan_match_inlier_ratio_ =
-      feats_down_size_ > 0
-          ? static_cast<double>(effect_feat_num_) / feats_down_size_
-          : 0.0;
-  const M3D dR =
-      state_before_update.rot_end.transpose() * state_after_update.rot_end;
-  scan_match_delta_rotation_deg_ = Log(dR).norm() * 57.295779513;
-  scan_match_delta_translation_m_ =
-      (state_after_update.pos_end - state_before_update.pos_end).norm();
-
-  if (!std::isfinite(mean_point_to_plane_residual_)) {
-    last_scan_match_reject_reason_ = "NON_FINITE_RESIDUAL";
-    return false;
-  }
-  if (effect_feat_num_ < conf_.vehicle_min_effective_features()) {
-    last_scan_match_reject_reason_ = "LOW_EFFECTIVE_FEATURES";
-    return false;
-  }
-  if (scan_match_inlier_ratio_ < 0.25) {
-    last_scan_match_reject_reason_ = "LOW_INLIER_RATIO";
-    return false;
-  }
-  if (mean_point_to_plane_residual_ >
-      conf_.vehicle_mapping_residual_threshold()) {
-    last_scan_match_reject_reason_ = "HIGH_PLANE_RESIDUAL";
-    return false;
-  }
-  if (scan_match_delta_rotation_deg_ > 5.0) {
-    last_scan_match_reject_reason_ = "LARGE_ROTATION_UPDATE";
-    return false;
-  }
-  if (scan_match_delta_translation_m_ > 1.0) {
-    last_scan_match_reject_reason_ = "LARGE_TRANSLATION_UPDATE";
-    return false;
-  }
-  return true;
-}
-
 void FastLio2RuntimeCore::ProcessMeasure(const MeasureGroup& meas) {
   if (feats_undistort_->empty()) {
     first_lidar_time_ = meas.lidar_beg_time;
     imu_process_->first_lidar_time = first_lidar_time_;
   }
 
-  const StatesGroup state_before_frame = state_;
-  const bool log_refine_debug =
-      imu_en_ && refine_debug_frame_count_ < kRefineDebugFrameLimit;
-  auto imu_window_string = [&meas]() {
-    std::ostringstream oss;
-    oss << "imu_count=" << meas.imu.size();
-    if (!meas.imu.empty()) {
-      oss << " imu_front=" << std::fixed << std::setprecision(6)
-          << meas.imu.front()->header.stamp.toSec()
-          << " imu_back=" << meas.imu.back()->header.stamp.toSec();
-    }
-    return oss.str();
-  };
-  if (!imu_en_) {
-    AINFO << "[FastLio2][cv_model] frame_begin lidar_beg="
-          << std::fixed << std::setprecision(6) << meas.lidar_beg_time
-          << " lidar_end=" << lidar_end_time_
-          << " prev_state " << StateDebugString(state_before_frame);
-  } else if (log_refine_debug) {
-    AINFO << "[FastLio2][imu_model] frame_begin refine_debug_frame="
-          << refine_debug_frame_count_
-          << " lidar_beg=" << std::fixed << std::setprecision(6)
-          << meas.lidar_beg_time << " lidar_end=" << lidar_end_time_
-          << " " << imu_window_string()
-          << " prev_imu_state " << StateDebugString(state_before_frame)
-          << " prev_lidar_pose "
-          << PoseDebugString(state_before_frame.rot_end *
-                                 state_before_frame.offset_R_L_I,
-                             state_before_frame.rot_end *
-                                     state_before_frame.offset_T_L_I +
-                                 state_before_frame.pos_end);
-  }
   if (!imu_process_->Process(meas, state_, feats_undistort_)) {
-    if (log_refine_debug) {
-      AINFO << "[FastLio2][imu_model] process_skipped "
-            << "refine_debug_frame=" << refine_debug_frame_count_
-            << " lidar_beg=" << std::fixed << std::setprecision(6)
-            << meas.lidar_beg_time << " lidar_end=" << lidar_end_time_
-            << " " << imu_window_string()
-            << " state " << StateDebugString(state_);
-      ++refine_debug_frame_count_;
-    }
+    SetStage(Stage::IMU_INITIALIZING, "collecting IMU initialization samples");
     return;
   }
   state_propagat_ = state_;
-  if (!imu_en_) {
-    AINFO << "[FastLio2][cv_model] predicted_initial "
-          << StateDebugString(state_propagat_);
-  } else if (log_refine_debug) {
-    AINFO << "[FastLio2][imu_model] predicted_initial "
-          << "refine_debug_frame=" << refine_debug_frame_count_
-          << " imu_state " << StateDebugString(state_propagat_)
-          << " lidar_pose "
-          << PoseDebugString(state_propagat_.rot_end *
-                                 state_propagat_.offset_R_L_I,
-                             state_propagat_.rot_end *
-                                     state_propagat_.offset_T_L_I +
-                                 state_propagat_.pos_end);
-  }
 
   LasermapFovSegment();
 
@@ -468,21 +328,7 @@ void FastLio2RuntimeCore::ProcessMeasure(const MeasureGroup& meas) {
   point_search_ind_surf_.resize(feats_down_size_);
   nearest_points_.resize(feats_down_size_);
 
-  auto run_scan_to_map = [&](const char* pass_name) {
-    if (!imu_en_) {
-      AINFO << "[FastLio2][scan2map][" << pass_name
-            << "] start initial_pose " << PoseDebugString(state_)
-            << " feats_down=" << feats_down_size_;
-    } else if (log_refine_debug) {
-      AINFO << "[FastLio2][scan2map][" << pass_name
-            << "] start refine_debug_frame=" << refine_debug_frame_count_
-            << " imu_pose " << PoseDebugString(state_)
-            << " lidar_pose "
-            << PoseDebugString(state_.rot_end * state_.offset_R_L_I,
-                               state_.rot_end * state_.offset_T_L_I +
-                                   state_.pos_end)
-            << " feats_down=" << feats_down_size_;
-    }
+  auto run_scan_to_map = [&]() {
     VD(DIM_STATE) solution;
     MD(DIM_STATE, DIM_STATE) h_t_h;
     MD(DIM_STATE, DIM_STATE) i_state;
@@ -570,20 +416,14 @@ void FastLio2RuntimeCore::ProcessMeasure(const MeasureGroup& meas) {
 
         const PointType& norm_p = corr_normvect_->points[i];
         V3D norm_vec(norm_p.x, norm_p.y, norm_p.z);
-        if (imu_en_) {
-          M3D point_this_l_cross;
-          point_this_l_cross << SKEW_SYM_MATRX(point_this_l);
-          V3D h_r_li = point_this_l_cross * state_.offset_R_L_I.transpose() *
-                       state_.rot_end.transpose() * norm_vec;
-          V3D h_t_li = state_.rot_end.transpose() * norm_vec;
-          V3D a(point_crossmat * state_.rot_end.transpose() * norm_vec);
-          hsub.row(i) << VEC_FROM_ARRAY(a), norm_p.x, norm_p.y, norm_p.z,
-              VEC_FROM_ARRAY(h_r_li), VEC_FROM_ARRAY(h_t_li);
-        } else {
-          V3D a(point_crossmat * state_.rot_end.transpose() * norm_vec);
-          hsub.row(i) << VEC_FROM_ARRAY(a), norm_p.x, norm_p.y, norm_p.z, 0, 0,
-              0, 0, 0, 0;
-        }
+        M3D point_this_l_cross;
+        point_this_l_cross << SKEW_SYM_MATRX(point_this_l);
+        V3D h_r_li = point_this_l_cross * state_.offset_R_L_I.transpose() *
+                     state_.rot_end.transpose() * norm_vec;
+        V3D h_t_li = state_.rot_end.transpose() * norm_vec;
+        V3D a(point_crossmat * state_.rot_end.transpose() * norm_vec);
+        hsub.row(i) << VEC_FROM_ARRAY(a), norm_p.x, norm_p.y, norm_p.z,
+            VEC_FROM_ARRAY(h_r_li), VEC_FROM_ARRAY(h_t_li);
         hsub_t_r_inv.col(i) = hsub.row(i).transpose() * 1000;
         meas_vec(i) = -norm_p.intensity;
       }
@@ -598,14 +438,6 @@ void FastLio2RuntimeCore::ProcessMeasure(const MeasureGroup& meas) {
 
       const V3D rot_add = solution.block<3, 1>(0, 0);
       const V3D t_add = solution.block<3, 1>(3, 0);
-      if (imu_en_) {
-        extrinsic_delta_rotation_deg_ =
-            solution.block<3, 1>(6, 0).norm() * 57.3;
-        extrinsic_delta_translation_m_ = solution.block<3, 1>(9, 0).norm();
-      } else {
-        extrinsic_delta_rotation_deg_ = 0.0;
-        extrinsic_delta_translation_m_ = 0.0;
-      }
       const bool converged =
           (rot_add.norm() * 57.3 < 0.01) && (t_add.norm() * 100 < 0.015);
 
@@ -626,6 +458,21 @@ void FastLio2RuntimeCore::ProcessMeasure(const MeasureGroup& meas) {
     }
   };
 
+  run_scan_to_map();
+  scan_match_inlier_ratio_ =
+      feats_down_size_ > 0
+          ? static_cast<double>(effect_feat_num_) / feats_down_size_
+          : 0.0;
+  scan_match_delta_rotation_deg_ = 0.0;
+  scan_match_delta_translation_m_ = 0.0;
+  last_scan_match_valid_ = true;
+  MapIncremental();
+  ++frame_num_;
+  SetStage(Stage::RUNNING, "FAST-LIO scan-to-map update complete");
+  PublishProgressStatus();
+  return;
+
+#if 0  // Legacy LiDAR-only bootstrap and scan-match recovery are not FAST-LIO.
   auto log_scan_match_result = [&](const char* pass_name, bool valid) {
     AINFO << "[FastLio2][scan2map][" << pass_name
           << "] result"
@@ -943,6 +790,10 @@ void FastLio2RuntimeCore::EnableRefinementAfterBridgeFrame(
            "online refinement begins after lidar-only bridge frame");
 }
 
+#endif
+
+}
+
 void FastLio2RuntimeCore::LasermapFovSegment() {
   cub_needrm_.clear();
   V3F x_axis_body(LIDAR_SP_LEN, 0.0, 0.0);
@@ -999,6 +850,7 @@ void FastLio2RuntimeCore::LasermapFovSegment() {
     }
   }
   local_map_points_ = new_local_map_points;
+  ikdtree_.Delete_Point_Boxes(cub_needrm_);
   PointsCacheCollect();
 }
 
@@ -1122,6 +974,7 @@ bool FastLio2RuntimeCore::GetRegisteredCloud(
   return true;
 }
 
+#if 0  // Retained only as a reference while downstream visualization migrates.
 bool FastLio2RuntimeCore::GetInitialExtrinsicCloud(
     apollo::drivers::PointCloud* out) const {
   if (!conf_.publish_visualization() || !vehicle_prior_mode_ || !imu_en_ ||
@@ -1147,6 +1000,7 @@ bool FastLio2RuntimeCore::GetInitialExtrinsicCloud(
   PointCloudToApollo(world, conf_.map_frame(), out);
   return true;
 }
+#endif
 
 bool FastLio2RuntimeCore::GetRegisteredBodyCloud(
     apollo::drivers::PointCloud* out) const {
@@ -1185,7 +1039,7 @@ bool FastLio2RuntimeCore::GetStateSnapshot(
   out->scan_match_valid = last_scan_match_valid_;
   out->stage = StageName(stage_);
   out->tracking_status = status_.tracking_status();
-  out->reject_reason = last_scan_match_reject_reason_;
+  out->reject_reason.clear();
   out->frame_count = static_cast<uint64_t>(frame_num_);
   out->effective_feature_count = effect_feat_num_;
   out->map_point_count = ikdtree_.Root_Node == nullptr ? 0 : ikdtree_.validnum();
@@ -1206,38 +1060,25 @@ void FastLio2RuntimeCore::SetStage(Stage stage,
 }
 
 void FastLio2RuntimeCore::PublishProgressStatus() {
-  status_.set_motion_detected(bootstrap_data_started_);
-  status_.set_data_sufficient(bootstrap_data_ready_);
-  status_.set_time_lag_imu_to_lidar(time_lag_imu_wrt_lidar_ +
-                                    timediff_imu_wrt_lidar_);
+  status_.set_motion_detected(true);
+  status_.set_data_sufficient(stage_ == Stage::RUNNING);
+  status_.set_time_lag_imu_to_lidar(0.0);
   status_.set_mean_point_to_plane_residual(mean_point_to_plane_residual_);
   status_.set_effective_feature_count(
       static_cast<uint32_t>(std::max(0, effect_feat_num_)));
-  status_.set_extrinsic_delta_rotation_deg(extrinsic_delta_rotation_deg_);
-  status_.set_extrinsic_delta_translation_m(extrinsic_delta_translation_m_);
+  status_.set_extrinsic_delta_rotation_deg(0.0);
+  status_.set_extrinsic_delta_translation_m(0.0);
   status_.set_gravity_norm(state_.gravity.norm());
-  status_.set_lidar_motion_distance(total_distance_);
-  status_.set_lidar_angular_velocity_norm(lidar_angular_velocity_norm_);
+  status_.set_lidar_motion_distance(0.0);
+  status_.set_lidar_angular_velocity_norm(0.0);
   status_.set_scan_match_valid(last_scan_match_valid_);
-  status_.set_consecutive_rejected_frames(consecutive_rejected_frames_);
-  status_.set_scan_match_reject_reason(last_scan_match_reject_reason_);
+  status_.set_consecutive_rejected_frames(0);
+  status_.set_scan_match_reject_reason("");
   status_.set_scan_match_inlier_ratio(scan_match_inlier_ratio_);
   status_.set_scan_match_delta_rotation_deg(scan_match_delta_rotation_deg_);
   status_.set_scan_match_delta_translation_m(scan_match_delta_translation_m_);
-  if (last_scan_match_valid_) {
-    status_.set_tracking_status("OK");
-    status_.set_operator_hint("Continue smooth low-speed motion.");
-  } else if (consecutive_rejected_frames_ >= kTrackingLostRejectedFrames) {
-    status_.set_tracking_status("TRACKING_LOST");
-    status_.set_operator_hint(
-        "Stay near the existing map and drive slowly; reset if it cannot "
-        "recover.");
-  } else {
-    status_.set_tracking_status("SCAN_MATCH_REJECTED");
-    status_.set_operator_hint(
-        "Stay near the mapped area and slow down to help scan matching "
-        "recover.");
-  }
+  status_.set_tracking_status("OK");
+  status_.set_operator_hint("FAST-LIO scan-to-map is running.");
   FillMatrixRepeated(state_.offset_R_L_I,
                      status_.mutable_rotation_lidar_to_imu());
   FillVectorRepeated(state_.offset_T_L_I,
@@ -1250,9 +1091,9 @@ void FastLio2RuntimeCore::PublishProgressStatus() {
 }
 
 void FastLio2RuntimeCore::WriteResultFile() {
-  boost::filesystem::path result_path(conf_.result_path());
+  std::filesystem::path result_path(conf_.result_path());
   if (!result_path.parent_path().empty()) {
-    boost::filesystem::create_directories(result_path.parent_path());
+    std::filesystem::create_directories(result_path.parent_path());
   }
   std::ofstream fout(conf_.result_path(), std::ios::out);
   if (!fout) {
@@ -1280,16 +1121,13 @@ void FastLio2RuntimeCore::WriteResultFile() {
   fout << "0 0 0 1\n\n";
   fout << "IMU to LiDAR rotation matrix:\n" << r_il << "\n";
   fout << "IMU to LiDAR translation:\n" << t_il.transpose() << "\n\n";
-  fout << "Time Lag IMU to LiDAR (second): "
-       << time_lag_imu_wrt_lidar_ + timediff_imu_wrt_lidar_ << "\n";
+  fout << "Time Lag IMU to LiDAR (second): 0\n";
   fout << "Quality metrics:\n";
   fout << "  mean_point_to_plane_residual: " << mean_point_to_plane_residual_
        << "\n";
   fout << "  effective_feature_count: " << effect_feat_num_ << "\n";
-  fout << "  extrinsic_delta_rotation_deg: " << extrinsic_delta_rotation_deg_
-       << "\n";
-  fout << "  extrinsic_delta_translation_m: " << extrinsic_delta_translation_m_
-       << "\n";
+  fout << "  extrinsic_delta_rotation_deg: 0\n";
+  fout << "  extrinsic_delta_translation_m: 0\n";
   fout << "  gravity_norm: " << state_.gravity.norm() << "\n\n";
   fout << "Bias of Gyroscope (rad/s): " << state_.bias_g.transpose() << "\n";
   fout << "Bias of Accelerometer (m/s^2): " << state_.bias_a.transpose()
@@ -1307,16 +1145,6 @@ void FastLio2RuntimeCore::WriteResultFile() {
   AINFO << "FAST-LIO2 runtime result written to " << conf_.result_path();
 }
 
-void FastLio2RuntimeCore::Finish() {
-  PublishProgressStatus();
-  WriteResultFile();
-  if (!failed_) {
-    finished_ = true;
-    SetStage(Stage::FINISHED, "runtime refinement finished");
-    PublishProgressStatus();
-  }
-}
-
 void FastLio2RuntimeCore::Fail(const std::string& message) {
   failed_ = true;
   SetStage(Stage::ERROR, message);
@@ -1327,16 +1155,10 @@ const char* FastLio2RuntimeCore::StageName(Stage stage) {
   switch (stage) {
     case Stage::WAITING_FOR_DATA:
       return "WAITING_FOR_DATA";
-    case Stage::LIDAR_ONLY_ODOMETRY:
-      return "LIDAR_ONLY_ODOMETRY";
-    case Stage::DATA_ACCUMULATION:
-      return "DATA_ACCUMULATION";
-    case Stage::INITIALIZING:
-      return "INITIALIZING";
-    case Stage::REFINING:
-      return "REFINING";
-    case Stage::FINISHED:
-      return "FINISHED";
+    case Stage::IMU_INITIALIZING:
+      return "IMU_INITIALIZING";
+    case Stage::RUNNING:
+      return "RUNNING";
     case Stage::ERROR:
       return "ERROR";
   }

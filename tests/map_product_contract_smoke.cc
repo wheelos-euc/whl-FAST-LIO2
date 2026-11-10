@@ -6,7 +6,7 @@
 int main() {
   whl::fast_lio2::map_infra::OptimizedFrameDatasetManifest optimized;
   optimized.map_frame = "map";
-  optimized.map_origin_id = "zhongji_20251009_local_enu";
+  optimized.map_origin_id = "local_baseline_enu";
   optimized.source_dataset_fingerprint = "sha256:optimized-dataset";
 
   whl::fast_lio2::map_infra::TileMapProductManifest tile;
@@ -35,4 +35,3 @@ int main() {
   assert(error.find("localization.map_frame") != std::string::npos);
   return 0;
 }
-

@@ -163,6 +163,56 @@ class PrepareApolloHostRunTest(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 prepare_apollo_host_run.main()
 
+    def test_standalone_templates_preserve_sensor_and_algorithm_configuration(self) -> None:
+        config = self.root / "six_axis.pb.txt"
+        config.write_text(
+            'pointcloud_topic: "/livox/lidar"\n'
+            'imu_topic: "/livox/imu"\n'
+            'imu_message_type: RAW_GNSS_IMU\n'
+            'point_filter_num: 20\n'
+            'gyr_cov: 0.1\n',
+            encoding="utf-8",
+        )
+        dag = ROOT_DIR / "modules/fast_lio2/dag/fast_lio2.dag"
+        (self.apollo_root / "modules/common/data/global_flagfile.txt").unlink()
+        (self.apollo_root / "modules/fast_lio2/conf/fast_lio2.pb.txt").unlink()
+        (self.apollo_root / "modules/fast_lio2/dag/fast_lio2.dag").unlink()
+        output_dir = self.root / "out-standalone"
+        with mock.patch(
+            "sys.argv",
+            [
+                "prepare_apollo_host_run.py",
+                "--apollo_root", str(self.apollo_root),
+                "--output_dir", str(output_dir),
+                "--config_template", str(config),
+                "--dag_template", str(dag),
+            ],
+        ):
+            prepare_apollo_host_run.main()
+        generated = (output_dir / "fast_lio2.host.pb.txt").read_text()
+        self.assertTrue(generated.startswith(config.read_text()))
+        generated_dag = (output_dir / "fast_lio2.host.dag").read_text()
+        self.assertNotIn("__MODULE_LIBRARY__", generated_dag)
+        self.assertNotIn("__CONFIG_FILE__", generated_dag)
+        self.assertNotIn("flag_file_path", generated_dag)
+        summary = json.loads((output_dir / "host_run_summary.json").read_text())
+        self.assertEqual(summary["config_template"], str(config.resolve()))
+        self.assertEqual(summary["dag_template"], str(dag.resolve()))
+
+    def test_missing_custom_template_is_rejected(self) -> None:
+        for option in ("--config_template", "--dag_template"):
+            with self.subTest(option=option), mock.patch(
+                "sys.argv",
+                [
+                    "prepare_apollo_host_run.py",
+                    "--apollo_root", str(self.apollo_root),
+                    "--output_dir", str(self.root / "out-missing-template"),
+                    option, str(self.root / "missing"),
+                ],
+            ):
+                with self.assertRaises(FileNotFoundError):
+                    prepare_apollo_host_run.main()
+
     def test_record_path_is_normalized_and_queue_values_are_clamped(self) -> None:
         output_dir = self.root / "out-clamped"
         record_path = self.write_record_path()

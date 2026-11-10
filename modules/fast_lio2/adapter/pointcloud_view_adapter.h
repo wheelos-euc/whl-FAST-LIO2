@@ -20,17 +20,16 @@
 
 #include "modules/fast_lio2/proto/fast_lio2_runtime_conf.pb.h"
 
-#include "cyber/adaptive/pointcloud_view.h"
 #include "modules/fast_lio2/adapter/runtime_data.h"
+#include "wheelos_msgs/sensor_msgs/pointcloud.pb.h"
 
 namespace apollo {
 namespace localization {
 namespace fast_lio2 {
 
-bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
-                           double receive_time_sec,
-                           const FastLio2RuntimeConf& conf,
-                           FastLio2PointCloudFrame* out, std::string* error);
+bool ConvertPointCloud(const apollo::drivers::PointCloud& in,
+                       double receive_time_sec, const FastLio2RuntimeConf& conf,
+                       FastLio2PointCloudFrame* out, std::string* error);
 
 }  // namespace fast_lio2
 }  // namespace localization

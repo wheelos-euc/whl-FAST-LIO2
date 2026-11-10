@@ -25,18 +25,17 @@
 #include <thread>
 #include <vector>
 
-#include "cyber/adaptive/adaptive_pointcloud_reader.h"
 #include "cyber/component/component.h"
+#include "cyber/message/raw_message.h"
 #include "modules/fast_lio2/adapter/runtime_data.h"
 #include "modules/fast_lio2/core/fast_lio2_runtime_core.h"
 #include "modules/fast_lio2/proto/fast_lio2_runtime_conf.pb.h"
-#include "modules/common_msgs/localization_msgs/imu.pb.h"
-#include "modules/common_msgs/localization_msgs/localization.pb.h"
-#include "modules/common_msgs/sensor_msgs/imu.pb.h"
-#include "modules/common_msgs/sensor_msgs/pointcloud.pb.h"
 #include "modules/fast_lio2/proto/fast_lio2_conf.pb.h"
 #include "modules/fast_lio2/proto/fast_lio2_metrics.pb.h"
-#include "modules/slam_localization/proto/odometry.pb.h"
+#include "wheelos_msgs/localization_msgs/imu.pb.h"
+#include "wheelos_msgs/localization_msgs/localization.pb.h"
+#include "wheelos_msgs/sensor_msgs/imu.pb.h"
+#include "wheelos_msgs/sensor_msgs/pointcloud.pb.h"
 
 namespace apollo {
 namespace localization {
@@ -49,14 +48,19 @@ class FastLio2Component final : public apollo::cyber::Component<> {
 
  private:
   void Clear();
-  void PointCloudCallback(const apollo::cyber::adaptive::PointCloudView& cloud,
-                          double receive_time_sec);
+  void PointCloudCallback(
+      const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+      double receive_time_sec);
   void ImuCallback(
       const std::shared_ptr<apollo::localization::CorrectedImu>& imu,
       double receive_time_sec);
   void RawImuCallback(
       const std::shared_ptr<apollo::drivers::gnss::Imu>& imu,
       double receive_time_sec);
+  void VanjeeImuCallback(
+      const std::shared_ptr<apollo::cyber::message::RawMessage>& imu,
+      double receive_time_sec);
+  void QueueImuSample(FastLio2ImuSample imu);
   void WorkerLoop();
   void PublishOutputs(double processing_latency_ms);
   void PublishLocalization(
@@ -72,15 +76,18 @@ class FastLio2Component final : public apollo::cyber::Component<> {
   FastLio2RuntimeConf core_conf_;
   FastLio2RuntimeCore core_;
 
-  std::unique_ptr<apollo::cyber::adaptive::AdaptivePointCloudReader>
+  std::shared_ptr<apollo::cyber::Reader<apollo::drivers::PointCloud>>
       pointcloud_reader_;
   std::shared_ptr<apollo::cyber::Reader<apollo::localization::CorrectedImu>>
       imu_reader_;
   std::shared_ptr<apollo::cyber::Reader<apollo::drivers::gnss::Imu>>
       raw_imu_reader_;
+  std::shared_ptr<apollo::cyber::Reader<apollo::cyber::message::RawMessage>>
+      vanjee_imu_reader_;
   std::shared_ptr<apollo::cyber::Writer<apollo::localization::LocalizationEstimate>>
       localization_writer_;
-  std::shared_ptr<apollo::cyber::Writer<apollo::localization::Odometry>>
+  std::shared_ptr<
+      apollo::cyber::Writer<apollo::localization::LocalizationEstimate>>
       odometry_writer_;
   std::shared_ptr<apollo::cyber::Writer<FastLio2Metrics>> metrics_writer_;
   std::shared_ptr<apollo::cyber::Writer<apollo::drivers::PointCloud>>

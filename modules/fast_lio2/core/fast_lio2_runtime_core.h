@@ -12,15 +12,13 @@
 
 #include "modules/fast_lio2/proto/fast_lio2_runtime_conf.pb.h"
 #include "modules/fast_lio2/proto/fast_lio2_runtime_status.pb.h"
-#include "modules/common_msgs/sensor_msgs/pointcloud.pb.h"
+#include "wheelos_msgs/sensor_msgs/pointcloud.pb.h"
 
 #include "modules/fast_lio2/adapter/runtime_data.h"
 #include "modules/fast_lio2/core/include/common_lib.h"
 #include "modules/fast_lio2/core/include/ikd-Tree/ikd_Tree.h"
 
 class ImuProcess;
-class LI_Init;
-
 namespace apollo {
 namespace localization {
 namespace fast_lio2 {
@@ -58,7 +56,6 @@ class FastLio2RuntimeCore {
   const FastLio2RuntimeStatus& Status() const { return status_; }
 
   bool GetRegisteredCloud(apollo::drivers::PointCloud* out) const;
-  bool GetInitialExtrinsicCloud(apollo::drivers::PointCloud* out) const;
   bool GetRegisteredBodyCloud(apollo::drivers::PointCloud* out) const;
   bool GetMapCloud(apollo::drivers::PointCloud* out);
   bool GetStateSnapshot(FastLio2RuntimeStateSnapshot* out);
@@ -66,11 +63,8 @@ class FastLio2RuntimeCore {
  private:
   enum class Stage {
     WAITING_FOR_DATA,
-    LIDAR_ONLY_ODOMETRY,
-    DATA_ACCUMULATION,
-    INITIALIZING,
-    REFINING,
-    FINISHED,
+    IMU_INITIALIZING,
+    RUNNING,
     ERROR,
   };
 
@@ -78,7 +72,6 @@ class FastLio2RuntimeCore {
   void ProcessMeasure(const MeasureGroup& meas);
   void SetStage(Stage stage, const std::string& message);
   void PublishProgressStatus();
-  void Finish();
   void Fail(const std::string& message);
 
   void LasermapFovSegment();
@@ -90,11 +83,7 @@ class FastLio2RuntimeCore {
                           apollo::drivers::PointCloud* out) const;
   void CurrentWorldCloud(PointCloudXYZI* out) const;
   void WriteResultFile();
-  bool InitVehiclePrior();
-  bool ValidateScanMatch(const StatesGroup& state_before_update,
-                         const StatesGroup& state_after_update);
-  bool VehicleDataSufficient(const V3D& progress) const;
-  void EnableRefinementAfterBridgeFrame(const MeasureGroup& meas);
+  bool ConfigureStaticExtrinsic();
 
   static const char* StageName(Stage stage);
 
@@ -108,7 +97,6 @@ class FastLio2RuntimeCore {
   bool lidar_pushed_ = false;
 
   std::shared_ptr<::ImuProcess> imu_process_;
-  std::shared_ptr<::LI_Init> init_li_;
   MeasureGroup measures_;
   StatesGroup state_;
   StatesGroup state_propagat_;
@@ -135,66 +123,30 @@ class FastLio2RuntimeCore {
   std::vector<bool> point_selected_surf_;
   std::vector<float> res_last_;
 
-  MatrixXd jacobian_rot_;
-
   int frame_num_ = 0;
   int feats_down_size_ = 0;
   int effect_feat_num_ = 0;
   int num_max_iterations_ = 5;
-  int orig_odom_freq_ = 10;
-  int cut_frame_num_ = 3;
 
   double last_timestamp_lidar_ = 0.0;
   double last_timestamp_imu_ = 0.0;
   double lidar_beg_time_ = 0.0;
   double lidar_end_time_ = 0.0;
   double first_lidar_time_ = 0.0;
-  double move_start_time_ = 0.0;
-  double online_refine_start_time_ = 0.0;
-  double time_lag_imu_wrt_lidar_ = 0.0;
-  double timediff_imu_wrt_lidar_ = 0.0;
   double mean_acc_norm_ = 9.81;
-  double total_distance_ = 0.0;
 
   double filter_size_surf_min_ = 0.3;
   double filter_size_map_min_ = 0.5;
   double cube_len_ = 2000.0;
   double det_range_ = 100.0;
   double mean_point_to_plane_residual_ = 0.0;
-  double extrinsic_delta_rotation_deg_ = 0.0;
-  double extrinsic_delta_translation_m_ = 0.0;
-  double lidar_angular_velocity_norm_ = 0.0;
-  bool vehicle_prior_mode_ = false;
-  M3D initial_R_LI_ = Eye3d;
-  V3D initial_T_LI_ = Zero3d;
   bool last_scan_match_valid_ = true;
-  uint32_t consecutive_rejected_frames_ = 0;
-  std::string last_scan_match_reject_reason_ = "OK";
   double scan_match_inlier_ratio_ = 0.0;
   double scan_match_delta_rotation_deg_ = 0.0;
   double scan_match_delta_translation_m_ = 0.0;
 
-  bool imu_en_ = false;
-  bool refine_enable_pending_ = false;
-  bool bootstrap_data_started_ = false;
-  bool bootstrap_data_ready_ = false;
-  bool online_refine_finished_ = false;
-  bool refine_print_ = false;
-  int refine_debug_frame_count_ = 0;
   bool finished_ = false;
   bool failed_ = false;
-
-  M3D last_rot_for_init_ = M3D::Identity();
-  double last_time_for_init_ = 0.0;
-  bool last_init_sample_set_ = false;
-  V3D position_last_ = Zero3d;
-
-  M3D pending_R_LI_ = Eye3d;
-  V3D pending_T_LI_ = Zero3d;
-  V3D pending_gravity_ = Zero3d;
-  V3D pending_bias_g_ = Zero3d;
-  V3D pending_bias_a_ = Zero3d;
-  double pending_time_lag_imu_wrt_lidar_ = 0.0;
 };
 
 }  // namespace fast_lio2

@@ -1,0 +1,16 @@
+syntax = "proto2";
+
+package apollo.localization.fast_lio2;
+
+import "wheelos_msgs/basic_msgs/header.proto";
+import "wheelos_msgs/basic_msgs/geometry.proto";
+
+// Wire projection of apollo.drivers.vanjee.VanjeeImu. Keep field numbers and
+// types aligned with the driver without registering its message a second time.
+message VanjeeImuWire {
+  optional apollo.common.Header header = 1;
+  optional double measurement_time = 2;
+  optional apollo.common.Point3D linear_acceleration = 3;
+  optional apollo.common.Point3D angular_velocity = 4;
+  optional bool use_lidar_clock = 5;
+}

@@ -17,6 +17,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--apollo_root", required=True)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument("--config_template", default="")
+    parser.add_argument("--dag_template", default="")
     parser.add_argument("--record_path", default="")
     parser.add_argument("--module_library", default="")
     parser.add_argument("--mainboard_binary", default="")
@@ -89,6 +91,8 @@ def rewrite_dag_paths(
     for field_name, value in replacements.items():
         pattern = re.compile(rf"(^\s*{re.escape(field_name)}\s*:\s*).*$", re.MULTILINE)
         if not pattern.search(rewritten):
+            if field_name == "flag_file_path":
+                continue
             raise ValueError(f"DAG template missing required field: {field_name}")
         rewritten = pattern.sub(
             lambda match, path=value: f'{match.group(1)}"{path}"',
@@ -153,12 +157,22 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    config_template = apollo_root / "modules" / "fast_lio2" / "conf" / "fast_lio2.pb.txt"
-    dag_template = apollo_root / "modules" / "fast_lio2" / "dag" / "fast_lio2.dag"
+    config_template = (
+        Path(args.config_template)
+        if args.config_template
+        else apollo_root / "modules" / "fast_lio2" / "conf" / "fast_lio2.pb.txt"
+    )
+    dag_template = (
+        Path(args.dag_template)
+        if args.dag_template
+        else apollo_root / "modules" / "fast_lio2" / "dag" / "fast_lio2.dag"
+    )
     flag_file_path = apollo_root / "modules" / "common" / "data" / "global_flagfile.txt"
     config_template = require_existing_file(config_template, "FAST-LIO2 config template")
     dag_template = require_existing_file(dag_template, "FAST-LIO2 DAG template")
-    flag_file_path = require_existing_file(flag_file_path, "Apollo global flagfile")
+    dag_text = dag_template.read_text(encoding="utf-8")
+    if re.search(r"^\s*flag_file_path\s*:", dag_text, re.MULTILINE):
+        flag_file_path = require_existing_file(flag_file_path, "Apollo global flagfile")
 
     module_library = (
         require_existing_file(Path(args.module_library), "FAST-LIO2 shared library")
@@ -241,7 +255,6 @@ def main() -> None:
     config_text = replace_pbtxt_field(config_text, "result_path", str(result_path))
     generated_config.write_text(config_text, encoding="utf-8")
 
-    dag_text = dag_template.read_text(encoding="utf-8")
     dag_text = rewrite_dag_paths(
         dag_text, module_library, generated_config, flag_file_path.resolve()
     )
@@ -261,6 +274,8 @@ def main() -> None:
         max_pending_imu_messages=max_pending_imu_messages,
         result_path=result_path,
     )
+    summary["config_template"] = str(config_template)
+    summary["dag_template"] = str(dag_template)
     generated_summary.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

@@ -18,6 +18,7 @@
 
 #include <cmath>
 
+#include "modules/fast_lio2/adapter/sensor_contract.h"
 namespace apollo {
 namespace localization {
 namespace fast_lio2 {
@@ -46,16 +47,7 @@ bool ConvertCorrectedImu(const apollo::localization::CorrectedImu& in,
                                              imu.linear_acceleration().y(),
                                              imu.linear_acceleration().z());
 
-  if (!std::isfinite(out->angular_velocity.x()) ||
-      !std::isfinite(out->angular_velocity.y()) ||
-      !std::isfinite(out->angular_velocity.z()) ||
-      !std::isfinite(out->linear_acceleration.x()) ||
-      !std::isfinite(out->linear_acceleration.y()) ||
-      !std::isfinite(out->linear_acceleration.z())) {
-    if (error != nullptr) *error = "CorrectedImu contains non-finite values";
-    return false;
-  }
-  return true;
+  return ValidateFastLioImuSample(*out, error);
 }
 
 sensor_msgs::Imu::Ptr ToCompatImu(const FastLio2ImuSample& in) {

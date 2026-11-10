@@ -32,3 +32,9 @@
 *.app
 
 build
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-whl-FAST-LIO2
+artifacts/
+data/

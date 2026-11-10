@@ -9,6 +9,7 @@ message FastLio2Conf {
   enum ImuMessageType {
     CORRECTED_IMU = 0;
     RAW_GNSS_IMU = 1;
+    VANJEE_IMU = 2;
   }
   optional ImuMessageType imu_message_type = 3 [default = RAW_GNSS_IMU];
 
@@ -68,10 +69,14 @@ message FastLio2Conf {
   optional int32 max_pending_pointcloud_frames = 90 [default = 2];
   optional int32 max_pending_imu_messages = 91 [default = 20000];
 
-  // Kept large by default so offline playback behaves as odometry/mapping
-  // rather than terminating after the staged refinement window.
+  // Deprecated compatibility fields. The upstream FAST-LIO path does not use
+  // a LiDAR-only calibration/refinement lifecycle.
   optional double online_refine_time = 100 [default = 1e9];
   optional double data_accum_length = 101 [default = 650.0];
   optional int32 cut_frame_num = 102 [default = 3];
   optional int32 orig_odom_freq = 103 [default = 10];
+
+  // Must be set only after verifying that CorrectedImu carries raw angular
+  // velocity and specific force in the IMU body frame at sensor time.
+  optional bool corrected_imu_body_frame_verified = 104 [default = false];
 }

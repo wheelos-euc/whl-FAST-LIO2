@@ -1,4 +1,4 @@
-pointcloud_topic: "/apollo/sensor/velodyne64/compensator/PointCloud2"
+pointcloud_topic: "/apollo/sensor/lidar/fusion/PointCloud2"
 imu_topic: "/apollo/sensor/gnss/imu"
 imu_message_type: RAW_GNSS_IMU
 localization_topic: "/apollo/localization/fast_lio2/pose"
@@ -6,7 +6,7 @@ odometry_topic: "/apollo/localization/fast_lio2/odometry"
 metrics_topic: "/apollo/localization/fast_lio2/metrics"
 cloud_registered_topic: "/apollo/localization/fast_lio2/cloud_registered"
 map_topic: "/apollo/localization/fast_lio2/map"
-result_path: "/apollo/data/fast_lio2/Initialization_result.txt"
+result_path: "/tmp/whl_fast_lio2/Initialization_result.txt"
 map_frame: "map"
 child_frame: "fast_lio2"
 publish_registered_cloud: true

@@ -20,6 +20,8 @@
 #include <limits>
 #include <vector>
 
+#include "modules/fast_lio2/adapter/sensor_contract.h"
+
 namespace apollo {
 namespace localization {
 namespace fast_lio2 {
@@ -35,16 +37,15 @@ bool InRoi(const FastLio2RuntimeConf& conf, const PointType& pt) {
 
 }  // namespace
 
-bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
-                           double receive_time_sec,
-                           const FastLio2RuntimeConf& conf,
-                           FastLio2PointCloudFrame* out, std::string* error) {
+bool ConvertPointCloud(const apollo::drivers::PointCloud& in,
+                       double receive_time_sec, const FastLio2RuntimeConf& conf,
+                       FastLio2PointCloudFrame* out, std::string* error) {
   if (out == nullptr) {
     if (error != nullptr) *error = "output cloud pointer is null";
     return false;
   }
-  if (!in.valid() || in.point_count() == 0) {
-    if (error != nullptr) *error = "PointCloudView is empty or invalid";
+  if (in.point_size() == 0) {
+    if (error != nullptr) *error = "PointCloud is empty";
     return false;
   }
 
@@ -59,9 +60,9 @@ bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
   }
 
   auto cloud = std::make_shared<PointCloudXYZI>();
-  cloud->reserve(in.point_count());
+  cloud->reserve(in.point_size());
   std::vector<double> point_times_sec;
-  point_times_sec.reserve(in.point_count());
+  point_times_sec.reserve(in.point_size());
 
   const int point_filter_num = std::max(1, conf.point_filter_num());
   const double blind2 = conf.blind() * conf.blind();
@@ -69,20 +70,32 @@ bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
   double max_rel_ms = -std::numeric_limits<double>::infinity();
   int accepted_seen = 0;
   int valid_time_count = 0;
+  uint64_t previous_timestamp = 0;
 
-  in.ForEachFinitePoint([&](std::size_t, const auto& src) {
+  for (const auto& src : in.point()) {
+    if (!std::isfinite(src.x()) || !std::isfinite(src.y()) ||
+        !std::isfinite(src.z())) {
+      continue;
+    }
     PointType pt;
     pt.x = src.x();
     pt.y = src.y();
     pt.z = src.z();
-    pt.intensity = src.intensity_f32();
+    pt.intensity = static_cast<float>(src.intensity());
     pt.normal_x = 0.0F;
     pt.normal_y = 0.0F;
     pt.normal_z = 0.0F;
 
-    if (src.timestamp_ns() > 0) {
+    if (src.timestamp() > 0) {
+      if (previous_timestamp > 0 && src.timestamp() < previous_timestamp) {
+        if (error != nullptr) {
+          *error = "LiDAR point timestamps are not monotonic";
+        }
+        return false;
+      }
+      previous_timestamp = src.timestamp();
       const double point_time_sec =
-          static_cast<double>(src.timestamp_ns()) * 1e-9;
+          static_cast<double>(src.timestamp()) * 1e-9;
       if (first_point_time_sec <= 0.0) {
         first_point_time_sec = point_time_sec;
       }
@@ -91,16 +104,16 @@ bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
     const double range2 = static_cast<double>(pt.x) * pt.x +
                           static_cast<double>(pt.y) * pt.y +
                           static_cast<double>(pt.z) * pt.z;
-    if (range2 < blind2 || !InRoi(conf, pt)) return;
-    if ((accepted_seen++ % point_filter_num) != 0) return;
+    if (range2 < blind2 || !InRoi(conf, pt)) continue;
+    if ((accepted_seen++ % point_filter_num) != 0) continue;
 
     const double point_time_sec =
-        src.timestamp_ns() > 0 ? static_cast<double>(src.timestamp_ns()) * 1e-9
-                               : 0.0;
+        src.timestamp() > 0 ? static_cast<double>(src.timestamp()) * 1e-9
+                            : 0.0;
     pt.curvature = 0.0F;
     point_times_sec.push_back(point_time_sec);
     cloud->push_back(pt);
-  });
+  }
 
   if (cloud->size() <= 5) {
     if (error != nullptr) *error = "too few valid points after filtering";
@@ -139,7 +152,7 @@ bool ConvertPointCloudView(const apollo::cyber::adaptive::PointCloudView& in,
                                        : (scan_start_sec + max_rel_ms * 1e-3);
   out->min_relative_time_ms = min_rel_ms;
   out->max_relative_time_ms = max_rel_ms;
-  return true;
+  return ValidateFastLioPointCloudFrame(*out, error);
 }
 
 }  // namespace fast_lio2

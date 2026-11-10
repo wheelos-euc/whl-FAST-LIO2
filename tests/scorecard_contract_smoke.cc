@@ -38,7 +38,7 @@ int main() {
   whl::fast_lio2::evaluation::BaselineThresholds thresholds;
   whl::fast_lio2::evaluation::ScorecardEvaluator evaluator;
   const auto scorecard =
-      evaluator.Evaluate("zhongji_20251009", input, runtime, trajectory, map,
+      evaluator.Evaluate("local_baseline", input, runtime, trajectory, map,
                          thresholds);
   assert(scorecard.Passed());
   assert(!scorecard.gates.empty());
