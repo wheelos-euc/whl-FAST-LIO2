@@ -28,6 +28,7 @@
 #include "cyber/time/clock.h"
 #include "modules/fast_lio2/adapter/corrected_imu_adapter.h"
 #include "modules/fast_lio2/adapter/pointcloud_view_adapter.h"
+#include "modules/fast_lio2/adapter/raw_imu_adapter.h"
 #include "modules/fast_lio2/adapter/sensor_contract.h"
 #include "modules/fast_lio2/adapter/vanjee_imu_adapter.h"
 
@@ -70,12 +71,6 @@ bool HasFullInitialExtrinsic(const FastLio2Conf& conf) {
          conf.has_initial_translation_lidar_to_imu_x() &&
          conf.has_initial_translation_lidar_to_imu_y() &&
          conf.has_initial_translation_lidar_to_imu_z();
-}
-
-double GpsToUnixSeconds(double gps_seconds) {
-  constexpr double kGpsUnixEpochOffsetSec = 315964800.0;
-  constexpr double kLeapSecondsSince2017 = 18.0;
-  return gps_seconds + kGpsUnixEpochOffsetSec - kLeapSecondsSince2017;
 }
 
 }  // namespace
@@ -152,11 +147,10 @@ bool FastLio2Component::Init() {
   apollo::cyber::ReaderConfig pointcloud_config;
   pointcloud_config.channel_name = conf_.pointcloud_topic();
   pointcloud_config.pending_queue_size = 1;
-  pointcloud_reader_ = node_->CreateReader<apollo::drivers::PointCloud>(
+  pointcloud_reader_ = node_->CreateReader<apollo::cyber::message::RawMessage>(
       pointcloud_config,
-      [this](const std::shared_ptr<apollo::drivers::PointCloud>& msg) {
-        this->PointCloudCallback(msg,
-                                 apollo::cyber::Clock::NowInSeconds());
+      [this](const std::shared_ptr<apollo::cyber::message::RawMessage>& msg) {
+        this->PointCloudCallback(msg, apollo::cyber::Clock::NowInSeconds());
       });
   if (!pointcloud_reader_) {
     AERROR << "Failed to initialize FAST-LIO2 pointcloud reader.";
@@ -246,7 +240,7 @@ void FastLio2Component::Clear() {
 }
 
 void FastLio2Component::PointCloudCallback(
-    const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+    const std::shared_ptr<apollo::cyber::message::RawMessage>& cloud,
     double receive_time_sec) {
   if (!cloud) {
     AWARN << "Drop null FAST-LIO2 pointcloud message.";
@@ -270,7 +264,8 @@ void FastLio2Component::PointCloudCallback(
   apollo::localization::fast_lio2::FastLio2PointCloudFrame pointcloud_frame;
   std::string error;
   if (!apollo::localization::fast_lio2::ConvertPointCloud(
-          *cloud, receive_time_sec, core_conf_, &pointcloud_frame, &error)) {
+          cloud->message, receive_time_sec, core_conf_, &pointcloud_frame,
+          &error)) {
     AWARN << "Drop FAST-LIO2 pointcloud frame: " << error;
     return;
   }
@@ -319,24 +314,11 @@ void FastLio2Component::RawImuCallback(
   ++imu_messages_received_;
 
   apollo::localization::fast_lio2::FastLio2ImuSample imu_sample;
-  if (conf_.timestamp_mode() == FastLio2Conf::RECEIVE_TIME) {
-    imu_sample.timestamp_sec = receive_time_sec;
-  } else if (imu->measurement_time() > 0.0) {
-    imu_sample.timestamp_sec = GpsToUnixSeconds(imu->measurement_time());
-  } else if (imu->has_header() && imu->header().timestamp_sec() > 0.0) {
-    imu_sample.timestamp_sec = imu->header().timestamp_sec();
-  }
-  imu_sample.angular_velocity =
-      Eigen::Vector3d(imu->angular_velocity().x(), imu->angular_velocity().y(),
-                      imu->angular_velocity().z());
-  imu_sample.linear_acceleration =
-      Eigen::Vector3d(imu->linear_acceleration().x(),
-                      imu->linear_acceleration().y(),
-                      imu->linear_acceleration().z());
-
   std::string error;
-  if (!apollo::localization::fast_lio2::ValidateFastLioImuSample(imu_sample,
-                                                                 &error)) {
+  if (!apollo::localization::fast_lio2::ConvertRawGnssImu(
+          *imu, receive_time_sec,
+          conf_.timestamp_mode() == FastLio2Conf::RECEIVE_TIME, &imu_sample,
+          &error)) {
     AWARN << "Drop FAST-LIO2 raw GNSS IMU: " << error;
     return;
   }

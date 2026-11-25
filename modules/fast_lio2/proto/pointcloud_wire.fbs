@@ -1,0 +1,28 @@
+// Wire projection of Apollo Base's
+// modules/common_msgs/sensor_msgs/pointcloud.fbs. Keep field order and types
+// synchronized; the header is intentionally opaque because FAST-LIO2 ignores it.
+namespace apollo.common.flat;
+table Header {}
+
+namespace apollo.localization.fast_lio2.wire.flat;
+
+struct PointXYZIT {
+  x:float;
+  y:float;
+  z:float;
+  intensity:uint32;
+  timestamp:uint64;
+}
+
+table PointCloud {
+  header:apollo.common.flat.Header;
+  frame_id:string;
+  is_dense:bool;
+  point:[PointXYZIT];
+  measurement_time:double;
+  width:uint32;
+  height:uint32;
+}
+
+root_type PointCloud;
+file_identifier "PCLD";

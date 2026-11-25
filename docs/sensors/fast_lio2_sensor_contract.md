@@ -20,6 +20,18 @@ vendor-specific point fields.
 `corrected_imu_body_frame_verified: true` is explicitly configured. This flag
 is an operator assertion, not a coordinate conversion. It may be enabled only
 after checking the producer's frame and sensor-time semantics.
+The adapter reads `imu.angular_velocity_vrf` and
+`imu.linear_acceleration_vrf`; the unqualified `angular_velocity` and
+`linear_acceleration` fields in Apollo's `Pose` are world-frame values and are
+not suitable for IMU propagation. The producer must still verify that the VRF
+values are raw angular velocity and specific force, not vehicle-motion
+estimates.
+
+`RAW_GNSS_IMU` consumes the protobuf `apollo.drivers.gnss.Imu` fields directly:
+`measurement_time` is GPS-epoch seconds and is converted to Unix seconds using
+the current 18-second GPS-UTC offset; if absent, a positive header timestamp is
+used as Unix seconds. Angular velocity is rad/s and acceleration is m/s²; the
+adapter does not remove bias or rotate axes.
 
 `VANJEE_IMU` accepts `apollo.drivers.vanjee.VanjeeImu` through a Cyber raw
 reader and a local wire projection, avoiding a dependency on the hardware
@@ -43,6 +55,12 @@ diagnostic assumption when calibration is unavailable.
 
 Ring, return type, tag, line, RGB, and map/global pose are not FAST-LIO core
 inputs. A vendor adapter may consume them before emitting the canonical scan.
+The Cyber input adapter accepts both protobuf `apollo.drivers.PointCloud` and
+the PCLD FlatBuffer point-cloud wire layout. Both formats must provide the same
+finite metre-valued coordinates, monotonic nanosecond per-point timestamps,
+and compatible sensor clock. The local FlatBuffer wire projection mirrors the
+Apollo Base `pointcloud.fbs` field order and is tested through the same
+canonical point-cloud conversion path.
 
 ## Adapter responsibilities
 

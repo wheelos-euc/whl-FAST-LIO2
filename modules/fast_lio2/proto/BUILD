@@ -1,7 +1,13 @@
 load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library")
 
 package(default_visibility = ["//visibility:public"])
+
+flatbuffer_cc_library(
+    name = "fast_lio2_pointcloud_wire",
+    srcs = ["pointcloud_wire.fbs"],
+)
 
 cc_proto_library(
     name = "vanjee_imu_wire_cc_proto",
