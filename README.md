@@ -30,6 +30,12 @@ tools/bazelw build --config=dev --jobs=2 \
   //modules/fast_lio2:libfast_lio2_component.so //:core_tools
 ```
 
+`--config=dev` selects the local WheelOS dependencies and toolchain; it does
+not enable compiler optimization. Bazel's default `fastbuild` leaves the
+FAST-LIO2 C++ hot path unoptimized, so retain the `--per_file_copt` option for
+record replay and runtime builds. It applies `-O3` to sources under
+`modules/fast_lio2/` without changing optimization for unrelated targets.
+
 `deps.repos` imports only Core and WheelOS Msgs into ignored `pkgs/`.
 After dependency updates:
 
@@ -37,6 +43,7 @@ After dependency updates:
 vcs status pkgs
 vcs pull pkgs
 tools/bazelw build --config=dev --jobs=2 \
+  --per_file_copt='modules/fast_lio2/.*@-O3' \
   //modules/fast_lio2:libfast_lio2_component.so //:core_tools
 ```
 
