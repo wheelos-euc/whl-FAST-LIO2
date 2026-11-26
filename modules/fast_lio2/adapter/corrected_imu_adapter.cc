@@ -39,13 +39,20 @@ bool ConvertCorrectedImu(const apollo::localization::CorrectedImu& in,
   }
 
   const auto& imu = in.imu();
+  if (!imu.has_angular_velocity_vrf() || !imu.has_linear_acceleration_vrf()) {
+    if (error != nullptr) {
+      *error = "CorrectedImu has no vehicle-frame six-axis fields";
+    }
+    return false;
+  }
   out->timestamp_sec = in.header().timestamp_sec();
-  out->angular_velocity =
-      Eigen::Vector3d(imu.angular_velocity().x(), imu.angular_velocity().y(),
-                      imu.angular_velocity().z());
-  out->linear_acceleration = Eigen::Vector3d(imu.linear_acceleration().x(),
-                                             imu.linear_acceleration().y(),
-                                             imu.linear_acceleration().z());
+  out->angular_velocity = Eigen::Vector3d(imu.angular_velocity_vrf().x(),
+                                          imu.angular_velocity_vrf().y(),
+                                          imu.angular_velocity_vrf().z());
+  out->linear_acceleration =
+      Eigen::Vector3d(imu.linear_acceleration_vrf().x(),
+                      imu.linear_acceleration_vrf().y(),
+                      imu.linear_acceleration_vrf().z());
 
   return ValidateFastLioImuSample(*out, error);
 }

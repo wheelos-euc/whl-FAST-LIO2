@@ -21,7 +21,8 @@ message FastLio2Conf {
       [default = "/apollo/localization/fast_lio2/metrics"];
   optional string cloud_registered_topic = 13
       [default = "/apollo/localization/fast_lio2/cloud_registered"];
-  optional string map_topic = 14 [default = "/apollo/localization/fast_lio2/map"];
+  optional string map_topic = 14
+      [default = "/apollo/localization/fast_lio2/map"];
   optional string result_path = 15
       [default = "/apollo/data/fast_lio2/Initialization_result.txt"];
 
@@ -37,18 +38,21 @@ message FastLio2Conf {
   }
   optional TimestampMode timestamp_mode = 30 [default = MESSAGE_TIME];
 
-  optional int32 point_filter_num = 40 [default = 3];
-  optional double blind = 41 [default = 2.0];
-  optional double filter_size_surf = 42 [default = 0.3];
+  // Algorithm defaults match pinned official laserMapping.cpp parameters.
+  optional int32 point_filter_num = 40 [default = 2];
+  optional double blind = 41 [default = 0.01];
+  optional double filter_size_surf = 42 [default = 0.5];
   optional double filter_size_map = 43 [default = 0.5];
   optional double gyr_cov = 44 [default = 0.1];
   optional double acc_cov = 45 [default = 0.1];
   optional double b_gyr_cov = 46 [default = 0.0001];
   optional double b_acc_cov = 47 [default = 0.0001];
-  optional double det_range = 48 [default = 100.0];
-  optional int32 max_iteration = 49 [default = 5];
-  optional double cube_side_length = 50 [default = 2000.0];
+  optional double det_range = 48 [default = 300.0];
+  optional int32 max_iteration = 49 [default = 4];
+  optional double cube_side_length = 50 [default = 200.0];
+  // Compatibility only; upstream normalizes by its initialization mean.
   optional double mean_acc_norm = 51 [default = 9.81];
+  optional bool extrinsic_est_en = 52 [default = true];
 
   optional bool roi_enable = 60 [default = false];
   optional double roi_x_min = 61 [default = -1e9];

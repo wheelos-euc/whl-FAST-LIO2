@@ -1,193 +1,170 @@
 # whl-FAST-LIO2
 
-`whl-FAST-LIO2` is the Wheel.OS FAST-LIO2 refactor workspace.
+FAST-LIO2 LiDAR/IMU mapping component for WheelOS Apollo Cyber.
+It uses the official FAST-LIO `7cc4175` IKFoM estimator and ikd-tree.
 
-It currently contains:
+Capabilities:
 
-- FAST-LIO2 architecture contracts
-- official algorithm invariants
-- baseline scorecards and evaluation tooling
-- map-product consistency contracts for downstream map generation
+- LiDAR/IMU synchronization, initialization, motion compensation, pose
+  estimation and incremental mapping
+- Vanjee, raw GNSS IMU and corrected IMU inputs
+- Pose, odometry, registered point clouds, local maps and diagnostics
+- Apollo Cyber live operation or offline Cyber record replay
 
-## Current status
+Loop closure, global pose optimization and production localization-map delivery
+are not implemented.
 
-`whl-FAST-LIO2` is now a standalone Apollo Cyber component workspace under:
+## Quick start
 
-```text
-modules/fast_lio2/
-```
+Prerequisites: Linux, Python 3.10+, vcstool, C/C++ toolchain, CMake and Ninja.
+Run commands from the repository root.
 
-The workspace pins the published `wheelos_core` through Bzlmod and
-pins `wheelos_msgs` from
-[`wheelos/wheelos_msgs`](https://github.com/wheelos/wheelos_msgs). It no longer
-depends on Apollo Base's `modules/common_msgs`, adaptive point-cloud reader,
-common utilities, or SLAM odometry proto.
-
-Build with the repository wrapper, which reuses an installed matching Bazel
-or installs the pinned binary in the user cache when needed:
+### 1. Import dependencies and build
 
 ```bash
-tools/bazelw build //modules/fast_lio2:libfast_lio2_component.so
+mkdir -p pkgs
+vcs import --shallow pkgs < deps.repos
+
+tools/bazelw build --config=dev --jobs=2 \
+  --per_file_copt='modules/fast_lio2/.*@-O3' \
+  //modules/fast_lio2:libfast_lio2_component.so //:core_tools
 ```
 
-## What a complete standalone version must contain
-
-A complete runnable delivery consists of:
-
-1. Cyber component and proto config
-2. LiDAR / IMU input adapters
-3. FAST-LIO2 runtime core:
-   - synchronization
-   - IMU initialization and propagation
-   - point undistortion
-   - local map FOV management
-   - ikd-tree nearest search
-   - iterated Kalman scan-to-map update
-   - incremental map insertion
-4. Runtime outputs and map writers
-5. Evaluation / scorecard tools
-
-The long-term goal is:
-
-```text
-whl-FAST-LIO2/
-  fast_lio2/core        <- full algorithm runtime
-  fast_lio2/cyber       <- Apollo Cyber adapter
-  fast_lio2/evaluation  <- baseline and scorecard
-  fast_lio2/map_infra   <- optimized_frame_dataset contracts
-```
-
-## Mapping workflow
-
-The intended mapping flow is:
-
-```text
-LiDAR + IMU + lidar-to-imu extrinsic
-  -> FAST-LIO2 sync / undistort / scan-to-map
-  -> local odometry + registered scan + local map
-  -> optimized_frame_dataset
-  -> tile map + localization map package
-  -> scorecard / regression report
-```
-
-## Outputs
-
-The end-to-end mapping stack is expected to produce:
-
-### Runtime outputs
-
-- pose
-- odometry
-- registered cloud
-- map cloud
-- health / residual / latency metrics
-
-### Offline map artifacts
-
-- `optimized_frame_dataset/`
-  - `frames.csv`
-  - `pcd/*.pcd`
-- `tile_bundle/`
-- `localization_map_package/`
-- `map_product_bundle/manifest.json`
-
-### Evaluation artifacts
-
-- scorecard JSON
-- pass / fail / warning gates
-- baseline comparison report
-
-## Current evaluation commands
+`deps.repos` imports only Core and WheelOS Msgs into ignored `pkgs/`.
+After dependency updates:
 
 ```bash
-cmake -S . -B /tmp/whl_fast_lio2_build
-cmake --build /tmp/whl_fast_lio2_build -j
-
-/tmp/whl_fast_lio2_build/core_contract_smoke
-/tmp/whl_fast_lio2_build/scorecard_contract_smoke
-/tmp/whl_fast_lio2_build/map_product_contract_smoke
-/tmp/whl_fast_lio2_build/official_pipeline_contract_smoke
-
-python3 tools/evaluate_scorecard.py \
-  --metrics_json tests/scorecard_metrics_sensor_rgb.json \
-  --output_json /tmp/sensor_rgb_scorecard.json
-
+vcs status pkgs
+vcs pull pkgs
+tools/bazelw build --config=dev --jobs=2 \
+  //modules/fast_lio2:libfast_lio2_component.so //:core_tools
 ```
 
-Validated again after the core modularization on 2026-05-21:
+This project uses Bazel 8.8.1. It uses no `git_override`; Core's transitive
+Fast-CDR/Fast-DDS modules use the patched WheelOS registry versions.
 
-- Apollo drop-in build: passed
-- Apollo `mainboard` smoke start: passed
-- `core_contract_smoke`: passed
-- `scorecard_contract_smoke`: passed
-- `map_product_contract_smoke`: passed
-- `official_pipeline_contract_smoke`: passed
-- public synthetic scorecard: passed
-
-## Core modularization status
-
-The runtime-facing core is isolated from WheelOS/Cyber message definitions:
-
-- `adapter/runtime_data.h`
-- `proto/fast_lio2_runtime_conf.proto`
-- `proto/fast_lio2_runtime_status.proto`
-- `core/fast_lio2_runtime_core.h`
-- `core/fast_lio2_runtime_core.cc`
-
-`modules/fast_lio2/adapter/sensor_contract.{h,cc}` is the only boundary that
-may interpret driver timestamps, units, and frames. The core uses the standard
-IMU initialization, propagation, deskew, scan-to-map, and local-map eviction
-path; it does not depend on `core/include/LI_init/`.
-
-## Private data replay
-
-Customer records, site-specific configurations, replay scripts, scorecards,
-and assessment documents belong under the ignored `data/` directory. They are
-not part of the public source tree or its Git history.
-
-Runtime logs and result output are written to `/tmp/whl_fast_lio2`.
-
-See `docs/sensors/fast_lio2_sensor_contract.md` for the required LiDAR/IMU driver
-semantics. Corrected IMU input is deliberately blocked until its body-frame and
-sensor-time semantics are verified.
-
-See [`docs/README.md`](docs/README.md) for maintained project documentation.
-
-### Six-axis IMU and record adaptation
-
-The current `RAW_GNSS_IMU` input already consumes only three angular-velocity
-and three acceleration components; it does not use attitude, magnetometer,
-GNSS position, or an external pose. The enum names the Apollo protobuf type,
-not a requirement for a GNSS-equipped sensor. A converted Livox record using
-`apollo.drivers.gnss.Imu` can use this reader without changing the estimator.
-
-Record playback uses `cyber_recorder play` and the same component as live
-input. Select the actual record topics and verified LiDAR-to-IMU extrinsic in
-a private config under `data/`; do not reuse site-specific defaults. Raw IMU
-`measurement_time` must be GPS-epoch seconds (converted by adding 315964782),
-angular velocity rad/s, acceleration m/s², and point timestamps monotonic
-Unix nanoseconds. Do not apply a second acceleration conversion to an
-already-SI record. Audit the record and initialization compatibility before
-replay; successful message decoding is not evidence of map quality.
-
-Vanjee records use `imu_message_type: VANJEE_IMU` and their actual driver
-topics. Unlike `RAW_GNSS_IMU`, Vanjee `measurement_time` is passed through
-without a GPS offset. See the sensor contract for the wire schema and frames.
-
-The host asset generator accepts templates outside the Apollo workspace:
+### 2. Inspect the record and sensor configuration
 
 ```bash
+source scripts/env.sh
+cyber_recorder info /absolute/path/to/input.record.00000
+mkdir -p data artifacts/record-map
+cp modules/fast_lio2/conf/fast_lio2.pb.txt data/sensor.pb.txt
+```
+
+Edit `data/sensor.pb.txt`:
+
+| Setting | Requirement |
+| --- | --- |
+| `pointcloud_topic`, `imu_topic`, `imu_message_type` | Must match the record channels and message types. |
+| `timestamp_mode: MESSAGE_TIME` | LiDAR and IMU must use a verified acquisition-time basis. Do not substitute receive time. |
+| `initial_rotation_lidar_to_imu_*` | Complete quaternion; `qw = 1` represents identity rotation. |
+| `initial_translation_lidar_to_imu_*` | Metres, using `p_imu = R_li * p_lidar + t_li`. |
+| `extrinsic_est_en` | `true` estimates from the initial extrinsic; `false` keeps it fixed. Neither option validates calibration. |
+
+Coordinates are metres, angular velocity is rad/s and acceleration is m/s².
+Do not replay with unknown clock, unit or frame semantics. See the
+[sensor contract](docs/sensors/fast_lio2_sensor_contract.md).
+
+### 3. Generate launch assets
+
+```bash
+source scripts/env.sh
+
 python3 tools/prepare_apollo_host_run.py \
-  --apollo_root /path/to/apollo \
-  --config_template /path/to/private/sensor.pb.txt \
-  --dag_template modules/fast_lio2/dag/fast_lio2.dag \
-  --module_library /path/to/libfast_lio2_component.so \
-  --mainboard_binary /path/to/mainboard \
-  --cyber_recorder_binary /path/to/cyber_recorder \
-  --record_path /path/to/input.record \
-  --output_dir /tmp/whl_fast_lio2/replay
+  --apollo_root "$PWD" \
+  --config_template "$PWD/data/sensor.pb.txt" \
+  --dag_template "$PWD/modules/fast_lio2/dag/fast_lio2.dag" \
+  --module_library "$PWD/bazel-bin/modules/fast_lio2/libfast_lio2_component.so" \
+  --mainboard_binary "$(command -v mainboard)" \
+  --cyber_recorder_binary "$(command -v cyber_recorder)" \
+  --record_path /absolute/path/to/input.record.00000 \
+  --play_rate 0.25 \
+  --output_dir "$PWD/artifacts/record-map"
 ```
 
-This changes launch assets, queues and result paths only; algorithm parameters
-in the selected config are preserved. The generated summary records both
-template paths. The standalone DAG does not require Apollo's global flagfile.
+Keep launch assets inside the repository. Current Core rejects
+configuration and DAG paths outside its software root.
+
+### 4. Record and replay
+
+Open three terminals and source the environment in each:
+
+```bash
+source scripts/env.sh
+```
+
+Terminal 1: record the mapping outputs.
+
+```bash
+cyber_recorder record -o artifacts/record-map/mapping.record \
+  -c /apollo/localization/fast_lio2/pose \
+  -c /apollo/localization/fast_lio2/odometry \
+  -c /apollo/localization/fast_lio2/metrics \
+  -c /apollo/localization/fast_lio2/cloud_registered \
+  -c /apollo/localization/fast_lio2/map
+```
+
+Terminal 2: start FAST-LIO2.
+
+```bash
+mainboard -d "$PWD/artifacts/record-map/fast_lio2.host.dag"
+```
+
+Wait for:
+
+```text
+FAST-LIO2 component started.
+```
+
+Terminal 3: confirm recorder subscriptions, then replay.
+
+```bash
+cyber_recorder play -f /absolute/path/to/input.record.00000 -r 0.25
+```
+
+Pass segmented input files in chronological order to `-f`.
+After playback ends, let processing drain, stop the component, then stop the
+output recorder.
+
+## Results
+
+Output segments are under `artifacts/record-map/mapping.record.*`.
+Inspect every segment, not only `.00000`:
+
+```bash
+cyber_recorder info artifacts/record-map/mapping.record.00000
+```
+
+| Topic suffix | Output |
+| --- | --- |
+| `/pose`, `/odometry` | Scan-matched pose and odometry. |
+| `/cloud_registered` | Scans already transformed into the map frame. |
+| `/map` | Periodic local ikd-tree snapshots, not a complete map. |
+| `/metrics` | Processed/matched counts, drops, residual, latency and extrinsic estimate. |
+
+A complete map requires combining all registered scans.
+PCD, trajectory and preview export is an offline step; the launch helper does
+not export it automatically.
+
+Keep private records and sensor profiles under `data/` and generated output
+under `artifacts/`. Successful replay verifies runtime connectivity, not map
+accuracy or extrinsic calibration.
+
+## Development validation
+
+```bash
+tools/bazelw test --config=dev \
+  //modules/fast_lio2:fast_lio2_runtime_core_test \
+  //modules/fast_lio2:pointcloud_view_adapter_test \
+  //modules/fast_lio2:vanjee_imu_adapter_test \
+  //modules/fast_lio2:raw_imu_adapter_test \
+  //modules/fast_lio2:corrected_imu_adapter_test
+```
+
+Reference documentation:
+
+- [Documentation index](docs/README.md)
+- [Runtime architecture](docs/architecture/fast_lio2_runtime_architecture.md)
+- [Algorithm contract](docs/algorithm/fast_lio2_algorithm_invariants.md)
+- [Sensor contract](docs/sensors/fast_lio2_sensor_contract.md)

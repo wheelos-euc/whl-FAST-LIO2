@@ -140,6 +140,7 @@ def build_summary(
         summary["cyber_recorder_play_command"] = [
             str(cyber_recorder_binary),
             "play",
+            "-f",
             str(record_path),
             "-r",
             str(play_rate),
@@ -147,7 +148,9 @@ def build_summary(
     return summary
 
 
-def normalize_runtime_queue(pointcloud_frames: int, imu_messages: int) -> tuple[int, int]:
+def normalize_runtime_queue(
+    pointcloud_frames: int, imu_messages: int
+) -> tuple[int, int]:
     return max(1, pointcloud_frames), max(1000, imu_messages)
 
 
@@ -168,7 +171,9 @@ def main() -> None:
         else apollo_root / "modules" / "fast_lio2" / "dag" / "fast_lio2.dag"
     )
     flag_file_path = apollo_root / "modules" / "common" / "data" / "global_flagfile.txt"
-    config_template = require_existing_file(config_template, "FAST-LIO2 config template")
+    config_template = require_existing_file(
+        config_template, "FAST-LIO2 config template"
+    )
     dag_template = require_existing_file(dag_template, "FAST-LIO2 DAG template")
     dag_text = dag_template.read_text(encoding="utf-8")
     if re.search(r"^\s*flag_file_path\s*:", dag_text, re.MULTILINE):

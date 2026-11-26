@@ -9,4 +9,5 @@ common --enable_bzlmod
 build:release --compilation_mode=opt --strip=always --copt=-O3
 build:debug --compilation_mode=dbg --copt=-g --copt=-O0
 
+try-import %workspace%/.bazelrc.dev
 try-import %workspace%/.bazelrc.user

@@ -28,6 +28,7 @@
 #include "cyber/time/clock.h"
 #include "modules/fast_lio2/adapter/corrected_imu_adapter.h"
 #include "modules/fast_lio2/adapter/pointcloud_view_adapter.h"
+#include "modules/fast_lio2/adapter/raw_imu_adapter.h"
 #include "modules/fast_lio2/adapter/sensor_contract.h"
 #include "modules/fast_lio2/adapter/vanjee_imu_adapter.h"
 
@@ -70,12 +71,6 @@ bool HasFullInitialExtrinsic(const FastLio2Conf& conf) {
          conf.has_initial_translation_lidar_to_imu_x() &&
          conf.has_initial_translation_lidar_to_imu_y() &&
          conf.has_initial_translation_lidar_to_imu_z();
-}
-
-double GpsToUnixSeconds(double gps_seconds) {
-  constexpr double kGpsUnixEpochOffsetSec = 315964800.0;
-  constexpr double kLeapSecondsSince2017 = 18.0;
-  return gps_seconds + kGpsUnixEpochOffsetSec - kLeapSecondsSince2017;
 }
 
 }  // namespace
@@ -151,12 +146,13 @@ bool FastLio2Component::Init() {
 
   apollo::cyber::ReaderConfig pointcloud_config;
   pointcloud_config.channel_name = conf_.pointcloud_topic();
-  pointcloud_config.pending_queue_size = 1;
-  pointcloud_reader_ = node_->CreateReader<apollo::drivers::PointCloud>(
+  pointcloud_config.pending_queue_size =
+      std::max(1, conf_.max_pending_pointcloud_frames());
+  pointcloud_config.qos_profile.set_depth(pointcloud_config.pending_queue_size);
+  pointcloud_reader_ = node_->CreateReader<apollo::cyber::message::RawMessage>(
       pointcloud_config,
-      [this](const std::shared_ptr<apollo::drivers::PointCloud>& msg) {
-        this->PointCloudCallback(msg,
-                                 apollo::cyber::Clock::NowInSeconds());
+      [this](const std::shared_ptr<apollo::cyber::message::RawMessage>& msg) {
+        this->PointCloudCallback(msg, apollo::cyber::Clock::NowInSeconds());
       });
   if (!pointcloud_reader_) {
     AERROR << "Failed to initialize FAST-LIO2 pointcloud reader.";
@@ -187,6 +183,7 @@ bool FastLio2Component::BuildCoreConf() {
   core_conf_.set_max_iteration(conf_.max_iteration());
   core_conf_.set_cube_side_length(conf_.cube_side_length());
   core_conf_.set_mean_acc_norm(conf_.mean_acc_norm());
+  core_conf_.set_extrinsic_est_en(conf_.extrinsic_est_en());
   core_conf_.set_roi_enable(conf_.roi_enable());
   core_conf_.set_roi_x_min(conf_.roi_x_min());
   core_conf_.set_roi_x_max(conf_.roi_x_max());
@@ -227,8 +224,8 @@ bool FastLio2Component::BuildCoreConf() {
         conf_.initial_translation_lidar_to_imu_z());
     AINFO << "FAST-LIO2 configured with initial lidar-to-imu extrinsic.";
   } else {
-    AWARN << "FAST-LIO2 initial lidar-to-imu extrinsic is incomplete; "
-             "identity extrinsic will be used.";
+    AERROR << "FAST-LIO2 requires an explicit complete lidar-to-imu extrinsic.";
+    return false;
   }
   return true;
 }
@@ -246,7 +243,7 @@ void FastLio2Component::Clear() {
 }
 
 void FastLio2Component::PointCloudCallback(
-    const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+    const std::shared_ptr<apollo::cyber::message::RawMessage>& cloud,
     double receive_time_sec) {
   if (!cloud) {
     AWARN << "Drop null FAST-LIO2 pointcloud message.";
@@ -270,7 +267,8 @@ void FastLio2Component::PointCloudCallback(
   apollo::localization::fast_lio2::FastLio2PointCloudFrame pointcloud_frame;
   std::string error;
   if (!apollo::localization::fast_lio2::ConvertPointCloud(
-          *cloud, receive_time_sec, core_conf_, &pointcloud_frame, &error)) {
+          cloud->message, receive_time_sec, core_conf_, &pointcloud_frame,
+          &error)) {
     AWARN << "Drop FAST-LIO2 pointcloud frame: " << error;
     return;
   }
@@ -319,24 +317,11 @@ void FastLio2Component::RawImuCallback(
   ++imu_messages_received_;
 
   apollo::localization::fast_lio2::FastLio2ImuSample imu_sample;
-  if (conf_.timestamp_mode() == FastLio2Conf::RECEIVE_TIME) {
-    imu_sample.timestamp_sec = receive_time_sec;
-  } else if (imu->measurement_time() > 0.0) {
-    imu_sample.timestamp_sec = GpsToUnixSeconds(imu->measurement_time());
-  } else if (imu->has_header() && imu->header().timestamp_sec() > 0.0) {
-    imu_sample.timestamp_sec = imu->header().timestamp_sec();
-  }
-  imu_sample.angular_velocity =
-      Eigen::Vector3d(imu->angular_velocity().x(), imu->angular_velocity().y(),
-                      imu->angular_velocity().z());
-  imu_sample.linear_acceleration =
-      Eigen::Vector3d(imu->linear_acceleration().x(),
-                      imu->linear_acceleration().y(),
-                      imu->linear_acceleration().z());
-
   std::string error;
-  if (!apollo::localization::fast_lio2::ValidateFastLioImuSample(imu_sample,
-                                                                 &error)) {
+  if (!apollo::localization::fast_lio2::ConvertRawGnssImu(
+          *imu, receive_time_sec,
+          conf_.timestamp_mode() == FastLio2Conf::RECEIVE_TIME, &imu_sample,
+          &error)) {
     AWARN << "Drop FAST-LIO2 raw GNSS IMU: " << error;
     return;
   }
@@ -416,10 +401,19 @@ void FastLio2Component::WorkerLoop() {
       core_.AddPointCloud(cloud);
     }
 
-    const double start = apollo::cyber::Clock::NowInSeconds();
-    core_.Process();
-    const double end = apollo::cyber::Clock::NowInSeconds();
-    PublishOutputs((end - start) * 1000.0);
+    bool processed = false;
+    double start = apollo::cyber::Clock::NowInSeconds();
+    while (core_.Process()) {
+      const double end = apollo::cyber::Clock::NowInSeconds();
+      PublishOutputs((end - start) * 1000.0);
+      processed = true;
+      start = apollo::cyber::Clock::NowInSeconds();
+    }
+    if (!processed) {
+      FastLio2RuntimeStateSnapshot state;
+      const bool has_state = core_.GetStateSnapshot(&state);
+      PublishMetrics(has_state ? &state : nullptr, 0.0);
+    }
   }
 }
 
@@ -475,17 +469,17 @@ void FastLio2Component::PublishLocalization(
 
   if (state.covariance.rows() >= 6 && state.covariance.cols() >= 6) {
     localization.mutable_uncertainty()->mutable_orientation_std_dev()->set_x(
-        std::sqrt(std::max(0.0, state.covariance(0, 0))));
-    localization.mutable_uncertainty()->mutable_orientation_std_dev()->set_y(
-        std::sqrt(std::max(0.0, state.covariance(1, 1))));
-    localization.mutable_uncertainty()->mutable_orientation_std_dev()->set_z(
-        std::sqrt(std::max(0.0, state.covariance(2, 2))));
-    localization.mutable_uncertainty()->mutable_position_std_dev()->set_x(
         std::sqrt(std::max(0.0, state.covariance(3, 3))));
-    localization.mutable_uncertainty()->mutable_position_std_dev()->set_y(
+    localization.mutable_uncertainty()->mutable_orientation_std_dev()->set_y(
         std::sqrt(std::max(0.0, state.covariance(4, 4))));
-    localization.mutable_uncertainty()->mutable_position_std_dev()->set_z(
+    localization.mutable_uncertainty()->mutable_orientation_std_dev()->set_z(
         std::sqrt(std::max(0.0, state.covariance(5, 5))));
+    localization.mutable_uncertainty()->mutable_position_std_dev()->set_x(
+        std::sqrt(std::max(0.0, state.covariance(0, 0))));
+    localization.mutable_uncertainty()->mutable_position_std_dev()->set_y(
+        std::sqrt(std::max(0.0, state.covariance(1, 1))));
+    localization.mutable_uncertainty()->mutable_position_std_dev()->set_z(
+        std::sqrt(std::max(0.0, state.covariance(2, 2))));
   }
 
   localization_writer_->Write(localization);
@@ -515,17 +509,17 @@ void FastLio2Component::PublishOdometry(
 
   if (state.covariance.rows() >= 6 && state.covariance.cols() >= 6) {
     odom.mutable_uncertainty()->mutable_orientation_std_dev()->set_x(
-        std::sqrt(std::max(0.0, state.covariance(0, 0))));
-    odom.mutable_uncertainty()->mutable_orientation_std_dev()->set_y(
-        std::sqrt(std::max(0.0, state.covariance(1, 1))));
-    odom.mutable_uncertainty()->mutable_orientation_std_dev()->set_z(
-        std::sqrt(std::max(0.0, state.covariance(2, 2))));
-    odom.mutable_uncertainty()->mutable_position_std_dev()->set_x(
         std::sqrt(std::max(0.0, state.covariance(3, 3))));
-    odom.mutable_uncertainty()->mutable_position_std_dev()->set_y(
+    odom.mutable_uncertainty()->mutable_orientation_std_dev()->set_y(
         std::sqrt(std::max(0.0, state.covariance(4, 4))));
-    odom.mutable_uncertainty()->mutable_position_std_dev()->set_z(
+    odom.mutable_uncertainty()->mutable_orientation_std_dev()->set_z(
         std::sqrt(std::max(0.0, state.covariance(5, 5))));
+    odom.mutable_uncertainty()->mutable_position_std_dev()->set_x(
+        std::sqrt(std::max(0.0, state.covariance(0, 0))));
+    odom.mutable_uncertainty()->mutable_position_std_dev()->set_y(
+        std::sqrt(std::max(0.0, state.covariance(1, 1))));
+    odom.mutable_uncertainty()->mutable_position_std_dev()->set_z(
+        std::sqrt(std::max(0.0, state.covariance(2, 2))));
   }
 
   odometry_writer_->Write(odom);
@@ -566,6 +560,15 @@ void FastLio2Component::PublishMetrics(
         state->scan_match_delta_rotation_deg);
     metrics.set_scan_match_delta_translation_m(
         state->scan_match_delta_translation_m);
+    const Eigen::Quaterniond q_li(state->rotation_lidar_to_imu);
+    metrics.set_extrinsic_qx(q_li.x());
+    metrics.set_extrinsic_qy(q_li.y());
+    metrics.set_extrinsic_qz(q_li.z());
+    metrics.set_extrinsic_qw(q_li.w());
+    metrics.set_extrinsic_tx_m(state->translation_lidar_to_imu.x());
+    metrics.set_extrinsic_ty_m(state->translation_lidar_to_imu.y());
+    metrics.set_extrinsic_tz_m(state->translation_lidar_to_imu.z());
+    metrics.set_gravity_norm_mps2(state->gravity.norm());
   }
   metrics_writer_->Write(metrics);
 }

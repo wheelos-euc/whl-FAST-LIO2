@@ -1,3 +1,4 @@
+load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -23,12 +24,14 @@ cc_library(
     srcs = [
         "adapter/corrected_imu_adapter.cc",
         "adapter/pointcloud_view_adapter.cc",
+        "adapter/raw_imu_adapter.cc",
         "adapter/sensor_contract.cc",
         "adapter/vanjee_imu_adapter.cc",
     ],
     hdrs = [
         "adapter/corrected_imu_adapter.h",
         "adapter/pointcloud_view_adapter.h",
+        "adapter/raw_imu_adapter.h",
         "adapter/runtime_data.h",
         "adapter/sensor_contract.h",
         "adapter/vanjee_imu_adapter.h",
@@ -40,12 +43,14 @@ cc_library(
     ],
     copts = FAST_LIO2_COPTS,
     deps = [
+        "//modules/fast_lio2/proto:fast_lio2_pointcloud_wire",
         "//modules/fast_lio2/proto:fast_lio2_runtime_conf_cc_proto",
         "//modules/fast_lio2/proto:vanjee_imu_wire_cc_proto",
         "@eigen",
         "@local_config_pcl//:common",
         "@wheelos_core//cyber",
         "@wheelos_msgs//wheelos_msgs/localization_msgs:imu_cc_proto",
+        "@wheelos_msgs//wheelos_msgs/sensor_msgs:imu_cc_proto",
         "@wheelos_msgs//wheelos_msgs/sensor_msgs:pointcloud_cc_proto",
     ],
 )
@@ -57,6 +62,30 @@ cc_test(
     deps = [
         ":fast_lio2_adapter",
         "//modules/fast_lio2/proto:vanjee_imu_wire_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "raw_imu_adapter_test",
+    srcs = ["adapter/raw_imu_adapter_test.cc"],
+    copts = FAST_LIO2_COPTS,
+    deps = [":fast_lio2_adapter"],
+)
+
+cc_test(
+    name = "corrected_imu_adapter_test",
+    srcs = ["adapter/corrected_imu_adapter_test.cc"],
+    copts = FAST_LIO2_COPTS,
+    deps = [":fast_lio2_adapter"],
+)
+
+cc_test(
+    name = "pointcloud_view_adapter_test",
+    srcs = ["adapter/pointcloud_view_adapter_test.cc"],
+    copts = FAST_LIO2_COPTS,
+    deps = [
+        ":fast_lio2_adapter",
+        "//modules/fast_lio2/proto:fast_lio2_pointcloud_wire",
     ],
 )
 
@@ -108,6 +137,14 @@ cc_library(
     alwayslink = True,
 )
 
+cc_test(
+    name = "fast_lio2_runtime_core_test",
+    srcs = ["core/fast_lio2_runtime_core_test.cc"],
+    copts = FAST_LIO2_COPTS,
+    linkopts = FAST_LIO2_LINKOPTS,
+    deps = [":fast_lio2_runtime_core"],
+)
+
 cc_binary(
     name = "libfast_lio2_component.so",
     linkshared = True,
@@ -118,6 +155,7 @@ cc_binary(
 filegroup(
     name = "runtime_data",
     srcs = glob([
+        "conf/cyber.pb.conf",
         "conf/fast_lio2.pb.txt",
         "dag/**",
         "launch/**",

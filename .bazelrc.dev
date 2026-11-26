@@ -1,0 +1,10 @@
+# Source development, following Sensor Kit's VCS checkout convention:
+#   mkdir -p pkgs
+#   vcs import --shallow pkgs < deps.repos
+#   vcs pull pkgs
+# Opt in with --config=dev.
+common:dev --lockfile_mode=off
+common:dev --override_module=wheelos_core=%workspace%/pkgs/core
+common:dev --override_module=wheelos_msgs=%workspace%/pkgs/wheelos_msgs
+
+build:dev --extra_toolchains=@@rules_foreign_cc+//toolchains:preinstalled_ninja_toolchain

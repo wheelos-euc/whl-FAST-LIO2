@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly VERSION="7.6.2"
+readonly VERSION="8.8.1"
 readonly CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/whl-fast-lio2"
 readonly BAZEL_BIN="${CACHE_DIR}/bazel-${VERSION}"
 
@@ -14,11 +14,11 @@ fi
 case "$(uname -m)" in
   x86_64)
     readonly ARCH="x86_64"
-    readonly SHA256="dc5ec4591459738a71074957a452ca0d4fdb55623dc006cd6956a177bfe79af7"
+    readonly SHA256="5b5bab2095065817d3416ca9a0678bd39c10c9ede432dbe8187bfe74de285160"
     ;;
   aarch64|arm64)
     readonly ARCH="arm64"
-    readonly SHA256="5e9130cedac6d1ff4a0cc033b3565576babbe9641401b04a4ee701738b457220"
+    readonly SHA256="41ad5f9e833fcaee7398111343570cb155ca14985abb084b1f0ad2d29eaaec6d"
     ;;
   *)
     echo "Unsupported architecture: $(uname -m)" >&2

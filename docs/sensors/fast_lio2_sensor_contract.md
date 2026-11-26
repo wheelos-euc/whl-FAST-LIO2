@@ -20,6 +20,18 @@ vendor-specific point fields.
 `corrected_imu_body_frame_verified: true` is explicitly configured. This flag
 is an operator assertion, not a coordinate conversion. It may be enabled only
 after checking the producer's frame and sensor-time semantics.
+The adapter reads `imu.angular_velocity_vrf` and
+`imu.linear_acceleration_vrf`; the unqualified `angular_velocity` and
+`linear_acceleration` fields in Apollo's `Pose` are world-frame values and are
+not suitable for IMU propagation. The producer must still verify that the VRF
+values are raw angular velocity and specific force, not vehicle-motion
+estimates.
+
+`RAW_GNSS_IMU` consumes the protobuf `apollo.drivers.gnss.Imu` fields directly:
+`measurement_time` is GPS-epoch seconds and is converted to Unix seconds using
+the current 18-second GPS-UTC offset; if absent, a positive header timestamp is
+used as Unix seconds. Angular velocity is rad/s and acceleration is m/s²; the
+adapter does not remove bias or rotate axes.
 
 `VANJEE_IMU` accepts `apollo.drivers.vanjee.VanjeeImu` through a Cyber raw
 reader and a local wire projection, avoiding a dependency on the hardware
@@ -43,6 +55,12 @@ diagnostic assumption when calibration is unavailable.
 
 Ring, return type, tag, line, RGB, and map/global pose are not FAST-LIO core
 inputs. A vendor adapter may consume them before emitting the canonical scan.
+The Cyber input adapter accepts both protobuf `apollo.drivers.PointCloud` and
+the PCLD FlatBuffer point-cloud wire layout. Both formats must provide the same
+finite metre-valued coordinates, monotonic nanosecond per-point timestamps,
+and compatible sensor clock. The local FlatBuffer wire projection mirrors the
+Apollo Base `pointcloud.fbs` field order and is tested through the same
+canonical point-cloud conversion path.
 
 ## Adapter responsibilities
 
@@ -60,6 +78,20 @@ IMU initialization → propagation and deskew → scan-to-map update
 → local-map insertion and eviction
 ```
 
-It loads the configured extrinsic once at startup, does not run the prior
-LiDAR-only/`LI_Init` calibration lifecycle, and does not terminate after a
-refinement duration.
+It requires a complete explicitly configured extrinsic at startup.
+`extrinsic_est_en` defaults to the upstream value `true`: the configured
+transform is then an initial value and may be updated by the filter.
+Set it to `false` to disable the extrinsic measurement Jacobians and retain
+the configured transform. Neither mode independently validates calibration.
+Metrics expose the current extrinsic quaternion/translation and gravity norm.
+
+The core uses upstream IKFoM initialization/propagation/deskew and does not run
+the prior LiDAR-only/`LI_Init` calibration lifecycle or terminate after a
+refinement duration. The initialization acceleration norm supplies the
+upstream acceleration normalization; `mean_acc_norm` is retained only for
+configuration compatibility, not as a second sensor-unit conversion.
+
+Map-frame registered points use the full IMU pose and LiDAR-to-IMU transform.
+The core's registered-body accessor applies the extrinsic and returns IMU
+`body` points, matching upstream; it is not an alias for LiDAR-local points.
+This accessor is not a complete `optimized_frame_dataset` writer.

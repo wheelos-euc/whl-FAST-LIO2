@@ -11,8 +11,8 @@ message FastLio2RuntimeConf {
       [default = "/apollo/data/fast_lio2/Initialization_result.txt"];
 
   optional int32 scan_line = 20 [default = 16];
-  optional int32 point_filter_num = 21 [default = 3];
-  optional double blind = 22 [default = 2.0];
+  optional int32 point_filter_num = 21 [default = 2];
+  optional double blind = 22 [default = 0.01];
 
   optional bool roi_enable = 30 [default = false];
   optional double roi_x_min = 31 [default = -1e9];
@@ -24,6 +24,7 @@ message FastLio2RuntimeConf {
 
   optional int32 cut_frame_num = 40 [default = 3];
   optional int32 orig_odom_freq = 41 [default = 10];
+  // Compatibility only; upstream normalizes by its initialization mean.
   optional double mean_acc_norm = 42 [default = 9.81];
 
   // Deprecated compatibility fields. Standard FAST-LIO initializes from IMU
@@ -31,7 +32,7 @@ message FastLio2RuntimeConf {
   optional double online_refine_time = 43 [default = 30.0];
   optional double data_accum_length = 44 [default = 650.0];
 
-  // Static LiDAR-to-IMU extrinsic:
+  // Initial LiDAR-to-IMU extrinsic; fixed only when extrinsic_est_en is false.
   // point_in_imu = R_li * point_in_lidar + t_li.
   optional double initial_rotation_lidar_to_imu_qx = 45;
   optional double initial_rotation_lidar_to_imu_qy = 46;
@@ -41,6 +42,7 @@ message FastLio2RuntimeConf {
   optional double initial_translation_lidar_to_imu_y = 50;
   optional double initial_translation_lidar_to_imu_z = 51;
 
+  // Deprecated custom-estimator noise fields, unused by upstream IKFoM.
   repeated double rot_li_cov = 52;
   repeated double trans_li_cov = 53;
   // Deprecated LiDAR_IMU_Init compatibility fields. They are ignored.
@@ -51,15 +53,17 @@ message FastLio2RuntimeConf {
   optional double vehicle_yaw_prior_sigma_deg = 58 [default = 10.0];
   optional double vehicle_translation_prior_sigma_m = 59 [default = 0.5];
 
-  optional double filter_size_surf = 60 [default = 0.3];
+  // Algorithm defaults match pinned official laserMapping.cpp parameters.
+  optional double filter_size_surf = 60 [default = 0.5];
   optional double filter_size_map = 61 [default = 0.5];
-  optional double gyr_cov = 62 [default = 0.5];
-  optional double acc_cov = 63 [default = 0.5];
+  optional double gyr_cov = 62 [default = 0.1];
+  optional double acc_cov = 63 [default = 0.1];
   optional double b_acc_cov = 64 [default = 0.0001];
   optional double b_gyr_cov = 65 [default = 0.0001];
-  optional double det_range = 66 [default = 100.0];
-  optional int32 max_iteration = 67 [default = 5];
-  optional double cube_side_length = 68 [default = 2000.0];
+  optional double det_range = 66 [default = 300.0];
+  optional int32 max_iteration = 67 [default = 4];
+  optional double cube_side_length = 68 [default = 200.0];
+  optional bool extrinsic_est_en = 69 [default = true];
 
   optional bool publish_visualization = 80 [default = true];
   optional string status_topic = 81

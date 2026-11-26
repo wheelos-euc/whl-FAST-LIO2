@@ -23,4 +23,12 @@ message FastLio2Metrics {
   optional double scan_match_inlier_ratio = 16 [default = 0.0];
   optional double scan_match_delta_rotation_deg = 17 [default = 0.0];
   optional double scan_match_delta_translation_m = 18 [default = 0.0];
+  optional double extrinsic_qx = 19;
+  optional double extrinsic_qy = 20;
+  optional double extrinsic_qz = 21;
+  optional double extrinsic_qw = 22;
+  optional double extrinsic_tx_m = 23;
+  optional double extrinsic_ty_m = 24;
+  optional double extrinsic_tz_m = 25;
+  optional double gravity_norm_mps2 = 26;
 }

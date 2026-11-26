@@ -38,3 +38,6 @@ bazel-testlogs
 bazel-whl-FAST-LIO2
 artifacts/
 data/
+pkgs/
+__pycache__/
+*.pyc

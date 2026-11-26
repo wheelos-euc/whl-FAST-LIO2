@@ -49,7 +49,7 @@ class FastLio2Component final : public apollo::cyber::Component<> {
  private:
   void Clear();
   void PointCloudCallback(
-      const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+      const std::shared_ptr<apollo::cyber::message::RawMessage>& cloud,
       double receive_time_sec);
   void ImuCallback(
       const std::shared_ptr<apollo::localization::CorrectedImu>& imu,
@@ -76,7 +76,7 @@ class FastLio2Component final : public apollo::cyber::Component<> {
   FastLio2RuntimeConf core_conf_;
   FastLio2RuntimeCore core_;
 
-  std::shared_ptr<apollo::cyber::Reader<apollo::drivers::PointCloud>>
+  std::shared_ptr<apollo::cyber::Reader<apollo::cyber::message::RawMessage>>
       pointcloud_reader_;
   std::shared_ptr<apollo::cyber::Reader<apollo::localization::CorrectedImu>>
       imu_reader_;

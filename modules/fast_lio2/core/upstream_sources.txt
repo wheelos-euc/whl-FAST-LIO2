@@ -1,0 +1,56 @@
+Reference: https://github.com/hku-mars/FAST_LIO
+Commit: 7cc4175de6f8ba2edf34bab02a42195b141027e9
+
+Imported:
+  include/IKFoM_toolkit/** -> core/include/IKFoM_toolkit/**
+  include/use-ikfom.hpp   -> core/include/use-ikfom.hpp
+  include/ikd-Tree submodule -> core/include/ikd-Tree/**
+    Repository: https://github.com/hku-mars/ikd-Tree
+    Commit: e2e3f4e9d3b95a9e66b1ba83dc98d4a05ed8a3c4
+    ikd_Tree.h and ikd_Tree.cpp are byte-identical to that snapshot.
+
+IKFoM numerical code and manifold definitions are preserved. The only toolkit
+patch changes the dynamic shared measurement callback from a raw function
+pointer to std::function so independent Cyber component instances can bind
+their own measurement model without a process-global estimator pointer.
+
+Adapted:
+  src/IMU_Processing.hpp -> core/imu_processing.h
+  src/laserMapping.cpp  -> core/fast_lio2_runtime_core.cc
+                         core/include/common_lib.h (plane-score helper)
+
+The adaptation retains upstream IMU initialization, mean gyro bias, S2 gravity,
+midpoint integration, IKFoM prediction/update, tail acceleration/gyro deskew,
+unweighted plane residual/Jacobian, extrinsic_est_en, convergence limits,
+LiDAR-position local-map movement and voxel-gated insertion. The plane score
+uses the original literal precision and positive comparison, including NaN
+rejection. Map movement/voxel arithmetic and the five-point matching threshold
+follow upstream. Public/internal algorithm defaults match laserMapping.cpp;
+explicit sensor profiles remain overrides, not a second algorithm.
+Initialization sample variances, overwritten by configured noise before
+prediction in upstream, and ROS/debug I/O are omitted. Empty outputs and IMU
+history are initialized deterministically.
+
+Intentional boundary differences:
+  - canonical validated sensor time replaces ROS/vendor preprocessing;
+    all IMU samples <= scan end are included, including an exact endpoint;
+  - a complete explicit extrinsic is required, never silently defaulted;
+  - an invalid/nonfinite update is not published as valid or inserted into
+    the map; state/covariance roll back to the IMU prediction;
+    missing-IMU packages clear validity and report DEGRADED rather than
+    relabeling the previous pose with a new scan time;
+  - Cyber frame/message/export plumbing is retained. Process consumes one
+    synchronized package so each scan can publish before the next update.
+    IMU-only wakeups publish diagnostic counters, not repeated poses/clouds.
+    The body-cloud accessor applies the extrinsic into IMU "body", as upstream.
+
+Licensing:
+FAST_LIO's upstream LICENSE is preserved as
+core/include/IKFoM_toolkit/UPSTREAM_LICENSE (GPL version 2).
+IKFoM/MTK files additionally carry their own per-file BSD notices; those
+notices are retained. The adapted algorithm files derive from FAST_LIO and
+retain its upstream licensing; the repository's root Apache notice does not
+relicense imported or adapted upstream code.
+The ikd-Tree project publishes GPLv2. Its pinned three-file snapshot has no
+separate LICENSE file; core/include/ikd-Tree/UPSTREAM_LICENSE preserves the
+project's published LICENSE blob d159169d1050894d3ea3b98e1c965c4058208fe1.

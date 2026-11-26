@@ -141,8 +141,8 @@ class PrepareApolloHostRunTest(unittest.TestCase):
             str((output_dir / "Initialization_result.txt").resolve()),
         )
         self.assertEqual(
-            summary["cyber_recorder_play_command"][-3:],
-            [str(record_path.resolve()), "-r", "0.1"],
+            summary["cyber_recorder_play_command"][-4:],
+            ["-f", str(record_path.resolve()), "-r", "0.1"],
         )
         self.assertTrue(summary["mainboard_command"][0].endswith("/mainboard"))
 
@@ -245,7 +245,7 @@ class PrepareApolloHostRunTest(unittest.TestCase):
         self.assertEqual(summary["max_pending_pointcloud_frames"], 1)
         self.assertEqual(summary["max_pending_imu_messages"], 1000)
         self.assertEqual(
-            summary["cyber_recorder_play_command"][2], str(record_path.resolve())
+            summary["cyber_recorder_play_command"][3], str(record_path.resolve())
         )
 
     def test_require_single_path_rejects_ambiguous_artifacts(self) -> None:

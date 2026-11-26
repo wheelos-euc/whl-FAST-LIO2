@@ -20,7 +20,6 @@ using namespace Eigen;
 #define PBWIDTH 30
 #define PI_M (3.14159265358)
 #define G_m_s2 (9.81)         // Gravity const in GuangDong/China
-#define DIM_STATE (24)      // Dimension of states (Let Dim(SO(3)) = 3)
 
 #define LIDAR_SP_LEN    (2)
 #define INIT_COV   (1)
@@ -51,7 +50,7 @@ const V3D Zero3d(0, 0, 0);
 // Vector3d Lidar_offset_to_IMU(0.05512, 0.02226, -0.0297); // Horizon
 // Vector3d Lidar_offset_to_IMU(0.04165, 0.02326, -0.0284); // Avia
 
-enum LID_TYPE{AVIA = 1, VELO, OUSTER, L515, PANDAR, ROBOSENSE}; //{1, 2, 3}
+enum LID_TYPE{AVIA = 1, VELO, OUSTER, L515, PANDAR, ROBOSENSE, MARSIM};
 struct MeasureGroup     // Lidar data and imu dates for the curent process
 {
     MeasureGroup()
@@ -60,111 +59,9 @@ struct MeasureGroup     // Lidar data and imu dates for the curent process
         this->lidar.reset(new PointCloudXYZI());
     };
     double lidar_beg_time;
+    double lidar_end_time = 0.0;
     PointCloudXYZI::Ptr lidar;
     deque<sensor_msgs::Imu::ConstPtr> imu;
-};
-
-struct StatesGroup
-{
-    StatesGroup() {
-		this->rot_end = M3D::Identity();
-		this->pos_end = Zero3d;
-        this->offset_R_L_I = M3D::Identity();
-        this->offset_T_L_I = Zero3d;
-        this->vel_end = Zero3d;
-        this->bias_g  = Zero3d;
-        this->bias_a  = Zero3d;
-        this->gravity = Zero3d;
-        this->cov     = MD(DIM_STATE,DIM_STATE)::Identity() * INIT_COV;
-        this->cov.block<9,9>(15,15) = MD(9,9)::Identity() * 0.00001;
-	};
-
-    StatesGroup(const StatesGroup& b) {
-		this->rot_end = b.rot_end;
-		this->pos_end = b.pos_end;
-        this->offset_R_L_I = b.offset_R_L_I;
-        this->offset_T_L_I = b.offset_T_L_I;
-        this->vel_end = b.vel_end;
-        this->bias_g  = b.bias_g;
-        this->bias_a  = b.bias_a;
-        this->gravity = b.gravity;
-        this->cov     = b.cov;
-	};
-
-    StatesGroup& operator=(const StatesGroup& b)
-	{
-        this->rot_end = b.rot_end;
-		this->pos_end = b.pos_end;
-        this->offset_R_L_I = b.offset_R_L_I;
-        this->offset_T_L_I = b.offset_T_L_I;
-        this->vel_end = b.vel_end;
-        this->bias_g  = b.bias_g;
-        this->bias_a  = b.bias_a;
-        this->gravity = b.gravity;
-        this->cov     = b.cov;
-        return *this;
-	};
-
-    StatesGroup operator+(const Matrix<double, DIM_STATE, 1> &state_add)
-	{
-        StatesGroup a;
-		a.rot_end = this->rot_end * Exp(state_add(0,0), state_add(1,0), state_add(2,0));
-		a.pos_end = this->pos_end + state_add.block<3,1>(3,0);
-        a.offset_R_L_I = this->offset_R_L_I *  Exp(state_add(6,0), state_add(7,0), state_add(8,0));
-        a.offset_T_L_I = this->offset_T_L_I + state_add.block<3,1>(9,0);
-        a.vel_end = this->vel_end + state_add.block<3,1>(12,0);
-        a.bias_g  = this->bias_g  + state_add.block<3,1>(15,0);
-        a.bias_a  = this->bias_a  + state_add.block<3,1>(18,0);
-        a.gravity = this->gravity + state_add.block<3,1>(21,0);
-        a.cov     = this->cov;
-		return a;
-	};
-
-    StatesGroup& operator+=(const Matrix<double, DIM_STATE, 1> &state_add)
-	{
-        this->rot_end = this->rot_end * Exp(state_add(0,0), state_add(1,0), state_add(2,0));
-		this->pos_end += state_add.block<3,1>(3,0);
-        this->offset_R_L_I = this->offset_R_L_I * Exp(state_add(6,0), state_add(7,0), state_add(8,0));
-        this->offset_T_L_I += state_add.block<3,1>(9,0);
-        this->vel_end += state_add.block<3,1>(12,0);
-        this->bias_g  += state_add.block<3,1>(15,0);
-        this->bias_a  += state_add.block<3,1>(18,0);
-        this->gravity += state_add.block<3,1>(21,0);
-		return *this;
-	};
-
-    Matrix<double, DIM_STATE, 1> operator-(const StatesGroup& b)
-	{
-        Matrix<double, DIM_STATE, 1> a;
-        M3D rotd(b.rot_end.transpose() * this->rot_end);
-        a.block<3,1>(0,0)  = Log(rotd);
-        a.block<3,1>(3,0)  = this->pos_end - b.pos_end;
-        M3D offsetd(b.offset_R_L_I.transpose() * this->offset_R_L_I);
-        a.block<3,1>(6,0) = Log(offsetd);
-        a.block<3,1>(9,0) = this->offset_T_L_I - b.offset_T_L_I;
-        a.block<3,1>(12,0)  = this->vel_end - b.vel_end;
-        a.block<3,1>(15,0)  = this->bias_g  - b.bias_g;
-        a.block<3,1>(18,0) = this->bias_a  - b.bias_a;
-        a.block<3,1>(21,0) = this->gravity - b.gravity;
-		return a;
-	};
-
-    void resetpose()
-    {
-        this->rot_end = M3D::Identity();
-		this->pos_end = Zero3d;
-        this->vel_end = Zero3d;
-    }
-
-	M3D rot_end;      // the estimated attitude (rotation matrix) at the end lidar point
-    V3D pos_end;      // the estimated position at the end lidar point (world frame)
-    M3D offset_R_L_I; // Rotation from Lidar frame L to IMU frame I
-    V3D offset_T_L_I; // Translation from Lidar frame L to IMU frame I
-    V3D vel_end;      // the estimated velocity at the end lidar point (world frame)
-    V3D bias_g;       // gyroscope bias
-    V3D bias_a;       // accelerator bias
-    V3D gravity;      // the estimated gravity acceleration
-    Matrix<double, DIM_STATE, DIM_STATE>  cov;     // states covariance
 };
 
 template<typename T>
@@ -265,6 +162,15 @@ bool esti_plane(Matrix<T, 4, 1> &pca_result, const PointVector &point, const T &
     }
 
     return true;
+}
+
+inline bool SelectPlaneCorrespondence(const PointType& world, const V3D& body,
+                                      const Eigen::Vector4f& plane,
+                                      float* distance) {
+  *distance = plane.x() * world.x + plane.y() * world.y + plane.z() * world.z +
+              plane.w();
+  const float score = 1 - 0.9 * std::fabs(*distance) / std::sqrt(body.norm());
+  return score > 0.9;
 }
 
 #endif

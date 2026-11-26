@@ -20,6 +20,88 @@ IMU propagation / point undistortion / IEKF update / ikd-tree map update
 
 This review uses the official `hku-mars/FAST_LIO` implementation as the reference for module boundaries and data semantics.
 
+## Current estimator restoration (2026-11-25)
+
+The active Cyber estimator now uses the IKFoM implementation and manifold
+definitions pinned to official FAST_LIO commit
+`7cc4175de6f8ba2edf34bab02a42195b141027e9`.
+Provenance, upstream licensing, and the precise adaptation boundary are in
+`modules/fast_lio2/core/upstream_sources.txt`.
+
+The restored numerical path includes:
+
+- the 23-dimensional error state with SO3 rotation/extrinsic and fixed-norm
+  S2 gravity, rather than the former custom 24-dimensional state;
+- upstream IMU initialization after the 10-sample threshold, measured mean
+  gyro bias, initial covariance, midpoint prediction, and tail-IMU deskew;
+- IKFoM `predict()` and `update_iterated_dyn_share_modified()`, including
+  manifold covariance transport and the upstream per-state convergence limits;
+- unweighted plane normals and point-to-plane residuals after score gating;
+- `extrinsic_est_en`, defaulting to upstream's `true`. Setting it to `false`
+  disables extrinsic measurement Jacobians; startup extrinsics are initial
+  values when estimation is enabled, not a separately validated calibration;
+- local-map movement referenced to the LiDAR position, including the lever arm.
+- the official `ikd-Tree` submodule at
+  `e2e3f4e9d3b95a9e66b1ba83dc98d4a05ed8a3c4`, with byte-identical
+  `ikd_Tree.h` and `ikd_Tree.cpp`, replacing the older local non-template tree;
+- the original score literal precision and positive comparison (which rejects
+  NaN), map/voxel arithmetic precision, and matching with exactly five points
+  after a map has been seeded; map seeding still requires more than five.
+
+IKFoM/MTK headers and `use-ikfom.hpp` are imported from the pinned source.
+The only IKFoM toolkit patch changes the measurement callback to `std::function`
+so multiple component instances do not require a shared global estimator.
+IMU processing and the measurement model are adapted to canonical inputs;
+they are not an untouched ROS node.
+
+### Upstream-first policy and necessary exceptions
+
+Preserve the pinned official algorithm unless a necessary middleware,
+validated sensor-contract, or failure-handling boundary requires a documented
+exception. Do not retain a different estimator, map-index revision, gate,
+numerical precision, or implicit parameter default without such a reason.
+
+The public Cyber and internal core algorithm defaults now match upstream
+`laserMapping.cpp` ROS parameter defaults: iterations 4, surface/map voxels
+0.5/0.5 m, cube 200 m, detection range 300 m, point decimation 2, blind range
+0.01 m, and gyro/acceleration noise 0.1. These are provenance defaults, not a
+qualified sensor profile. Explicit values in existing configurations remain
+unchanged and take precedence; aligning source does not justify blindly
+retuning a verified record or device profile.
+
+The remaining exceptions and reasons are:
+
+| Boundary | Reason |
+| --- | --- |
+| Cyber message/configuration/output types and canonical sensor adapters replace ROS/vendor preprocessing. | The supported runtime is Apollo Cyber; timestamps, units, frames and per-point time must satisfy the sensor contract rather than guess another driver's layout. |
+| Validated scan end replaces upstream mean-duration heuristics and Livox self-sync; extraction includes all IMUs at or before that endpoint. | Acquisition-time evidence must not be silently replaced or an exact endpoint discarded. Unknown clock offsets remain a preflight blocker. |
+| Complete finite explicit extrinsics are mandatory. | Missing geometry must not masquerade as an identity calibration. |
+| The IKFoM callback uses `std::function` rather than a global function pointer. | Independent Cyber component instances must bind their own measurement model without a shared active-estimator global. |
+| Missing IMU, failed/nonfinite updates and insufficient points invalidate the current scan; failed measurement updates roll back to IMU prediction and do not insert points. | Do not publish a stale/invalid estimate as valid or contaminate the map. This does not constitute a complete observability/quality gate. |
+| ROS/debug I/O and overwritten initialization sample-variance calculations are omitted; histories and empty outputs are initialized. | Remove framework coupling and undefined/stale data without changing configured propagation noise or valid-input formulas. |
+
+`Process()` consumes one synchronized package and returns whether one was
+consumed, including initialization/rejection. The component publishes before
+processing the next package, as in the upstream per-scan loop. IMU-only
+wakeups update diagnostic counters without re-publishing poses/clouds; their
+processing latency is zero because no scan was processed. The body-cloud
+accessor now applies LiDAR-to-IMU extrinsics into IMU `body`, matching upstream,
+rather than labeling LiDAR-local points as the upstream body output.
+
+Consequently, this is an official-algorithm Cyber adaptation, not a claim of
+bitwise identity with an entire upstream ROS deployment or identical results
+under different preprocessing/configuration.
+
+`fast_lio2_runtime_core_test` exercises stationary biased-IMU initialization,
+both extrinsic-estimation modes, unmatched-scan rejection/recovery, and a
+synthetic moving-room trajectory with per-point motion distortion. It also
+covers individually exposed buffered scans, missing-IMU invalidation/recovery,
+five-point matching, NaN score rejection, IMU-body cloud transformation, and
+finite-radius nearest search in the pinned tree. These are estimator
+regressions; the top-level CMake contract tests alone do not
+exercise this runtime. Record replay evidence and generated maps belong under
+ignored `artifacts/`, never in tracked project documentation.
+
 ## 2. Official algorithm sequence
 
 The official `src/laserMapping.cpp` flow is:

@@ -1,0 +1,20 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "mainboard",
+    actual = "@wheelos_core//tools:mainboard",
+)
+
+alias(
+    name = "cyber_recorder",
+    actual = "@wheelos_core//tools:cyber_recorder",
+)
+
+filegroup(
+    name = "core_tools",
+    srcs = [
+        ":cyber_recorder",
+        ":mainboard",
+        "//modules/fast_lio2:runtime_data",
+    ],
+)

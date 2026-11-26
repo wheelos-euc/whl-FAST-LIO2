@@ -12,6 +12,9 @@ project facts.
 - `docs/`: maintained architecture, algorithm, and sensor documentation.
 - `.agents/skills/`: repeatable task procedures.
 - `.agents/notes/`: plans and temporary investigation notes.
+- [WLR-720 user-supplied extrinsic](wlr_720.md): task-specific sensor geometry.
+- [FAST-LIO2 implementation map](fast_lio2_implementation.md): two-tree
+  boundaries and historical upstream-comparison findings.
 
 `data/` and `artifacts/` are ignored locations for private inputs and generated
 outputs. Do not copy their contents into tracked documentation.
